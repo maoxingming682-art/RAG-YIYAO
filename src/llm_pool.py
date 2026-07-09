@@ -21,7 +21,7 @@ def _env_api(index, default_name, default_base_url, default_model, default_prior
         "model": os.getenv(f"LLM_API_{index}_MODEL", default_model),
         "priority": int(os.getenv(f"LLM_API_{index}_PRIORITY", str(default_priority))),
         "last_fail": 0,
-        "cooldown": int(os.getenv(f"LLM_API_{index}_COOLDOWN", "15")),
+        "cooldown": int(os.getenv(f"LLM_API_{index}_COOLDOWN", "0")),
     }
 
 
@@ -75,7 +75,7 @@ if os.getenv("LLM_API_KEY"):
             "model": os.getenv("LLM_MODEL", "glm-4.7-flash"),
             "priority": int(os.getenv("LLM_API_PRIORITY", "99")),
             "last_fail": 0,
-            "cooldown": int(os.getenv("LLM_API_COOLDOWN", "15")),
+            "cooldown": int(os.getenv("LLM_API_COOLDOWN", "0")),
         }
     )
 
@@ -88,7 +88,7 @@ APIS = [
         "model": "GLM-5.1",
         "priority": 1,  # 最稳定，主力
         "last_fail": 0,
-        "cooldown": 15,  # 失败后冷却15秒（不等60秒）
+        "cooldown": 0,  # 失败后不等待，立即切换
     },
     {
         "name": "keungliang",
@@ -97,7 +97,7 @@ APIS = [
         "model": "glm-5.2",
         "priority": 2,
         "last_fail": 0,
-        "cooldown": 15,
+        "cooldown": 0,
     },
     {
         "name": "zhenhaoji",
@@ -106,17 +106,15 @@ APIS = [
         "model": "glm-4.7-flash",
         "priority": 3,  # 备用
         "last_fail": 0,
-        "cooldown": 15,
+        "cooldown": 0,
     },
 ]
 """
 
 
 def _is_available(api):
-    """检查API是否在冷却期外"""
-    if api["last_fail"] == 0:
-        return True
-    return time.time() - api["last_fail"] >= api["cooldown"]
+    """Provider failures are recorded, but failover never waits on cooldown."""
+    return True
 
 
 def _mark_fail(api):
@@ -163,15 +161,8 @@ def chat(messages, temperature=0.3, max_tokens=1024, retry=2):
     last_error = None
 
     for attempt in range(retry + 1):
-        # 按优先级排序，跳过冷却中的
-        available = [a for a in sorted(APIS, key=lambda x: x["priority"]) if _is_available(a)]
-        if not available:
-            # 全在冷却中，等最短的
-            min_wait = min(a["cooldown"] - (time.time() - a["last_fail"]) for a in APIS)
-            wait = max(5, min_wait)
-            print(f"  所有API冷却中，等待{wait:.0f}秒...", flush=True)
-            time.sleep(wait)
-            continue
+        # 按优先级排序，失败后立刻切下一个，不做冷却等待。
+        available = sorted(APIS, key=lambda x: x["priority"])
 
         for api in available:
             try:
@@ -194,9 +185,6 @@ def chat(messages, temperature=0.3, max_tokens=1024, retry=2):
                     _mark_fail(api)
                     continue
 
-        if attempt < retry:
-            time.sleep(3)
-
     raise last_error
 
 
@@ -211,13 +199,7 @@ def chat_stream(messages, temperature=0.3, max_tokens=1024, retry=1):
 
     last_error = None
     for attempt in range(retry + 1):
-        available = [a for a in sorted(APIS, key=lambda x: x["priority"]) if _is_available(a)]
-        if not available:
-            min_wait = min(a["cooldown"] - (time.time() - a["last_fail"]) for a in APIS)
-            wait = max(3, min_wait)
-            print(f"  [stream] 所有API冷却中，等待{wait:.0f}秒...", flush=True)
-            time.sleep(wait)
-            continue
+        available = sorted(APIS, key=lambda x: x["priority"])
         for api in available:
             client = OpenAI(base_url=api["base_url"], api_key=api["api_key"], timeout=120)
             got = False
@@ -250,8 +232,6 @@ def chat_stream(messages, temperature=0.3, max_tokens=1024, retry=1):
                     # 已经输出过内容，不能再切换，直接结束
                     print(f"  [stream][{api['name']}] 中途断开: {str(e)[:60]}", flush=True)
                     return
-        if attempt < retry:
-            time.sleep(2)
     raise last_error
 
 
