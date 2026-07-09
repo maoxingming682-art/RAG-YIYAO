@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>药业智能咨询助手</title>
+    <script>
+        (function normalizeLocalEntry() {
+            if (window.location.protocol === 'file:') {
+                window.location.replace('http://localhost:5006/');
+                return;
+            }
+            if (window.location.hostname === '0.0.0.0') {
+                window.location.replace(`http://localhost:5006${window.location.pathname}${window.location.search}${window.location.hash}`);
+            }
+        })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            background: #64748b;
+            animation: typing-bounce 1.2s infinite;
+        }
+        .typing-dot:nth-child(2) { animation-delay: 0.16s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.32s; }
+        @keyframes typing-bounce {
+            0%, 70%, 100% { transform: translateY(0); opacity: .45; }
+            35% { transform: translateY(-5px); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="h-screen overflow-hidden bg-slate-100 text-slate-900">
+    <!--
+      LangUI-derived MIT snippets adapted for this static Flask page:
+      public/components/components-prompt-containers/1.html
+      public/components/components-prompt-messages/2.html
+      public/components/components-prompt-message-inputs/1.html
+      public/components/components-prompt-suggestions/2.html
+      public/components/components-prompt-history-panels/1.html
+    -->
+    <div class="flex h-screen w-full">
+        <aside class="hidden w-80 shrink-0 border-r border-slate-300 bg-slate-50 p-3 lg:block">
+            <!-- Prompt history panel -->
+            <div class="flex h-full max-w-xl flex-col rounded-lg border border-slate-300 bg-slate-50 dark:border-slate-200/10 dark:bg-slate-900">
+                <div class="mx-2 mt-6">
+                    <button
+                        type="button"
+                        onclick="resetConversation()"
+                        class="flex w-full gap-x-4 rounded-lg border border-slate-300 p-4 text-left text-sm font-medium text-slate-700 transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="h-5 w-5"
+                            viewBox="0 0 24 24"
+                            stroke-width="2"
+                            stroke="currentColor"
+                            fill="none"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                            <path d="M12 5l0 14"></path>
+                            <path d="M5 12l14 0"></path>
+                        </svg>
+                        新对话
+                    </button>
+                </div>
+
+                <div class="mx-2 mt-4 grid grid-cols-2 gap-2">
+                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
+                        <div class="text-lg font-semibold text-slate-800" id="metricChunks">--</div>
+                        <div class="mt-1 text-xs text-slate-500">知识块</div>
+                    </div>
+                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
+                        <div class="text-lg font-semibold text-slate-800" id="metricApis">--</div>
+                        <div class="mt-1 text-xs text-slate-500">API</div>
+                    </div>
+                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
+                        <div class="text-lg font-semibold text-slate-800" id="metricTurns">0</div>
+                        <div class="mt-1 text-xs text-slate-500">轮对话</div>
+                    </div>
+                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
+                        <div class="truncate text-lg font-semibold text-slate-800" id="metricTopic">--</div>
+                        <div class="mt-1 text-xs text-slate-500">当前主题</div>
+                    </div>
+                </div>
+
+                <div class="mx-2 mt-5 text-xs font-medium uppercase tracking-wide text-slate-500">示例问题</div>
+                <div class="mx-2 mt-2 space-y-2">
+                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('依托度酸片怎么服用？')">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">依托度酸片怎么服用？</span>
+                    </button>
+                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('有什么禁忌吗？饭后吃还是饭前吃？')">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">有什么禁忌吗？饭后吃还是饭前吃？</span>
+                    </button>
+                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('和感康的作用相似吗？')">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">和感康的作用相似吗？</span>
+                    </button>
+                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('突然胸痛呼吸困难')">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">突然胸痛呼吸困难</span>
+                    </button>
+                </div>
+
+                <div class="mx-2 mt-5 text-xs font-medium uppercase tracking-wide text-slate-500">最近上下文</div>
+                <div class="my-3 min-h-0 flex-1 space-y-3 overflow-y-auto px-2" id="contextStack">
+                    <div class="flex w-full flex-col gap-y-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-left text-sm text-slate-500">
+                        等待第一轮咨询
+                    </div>
+                </div>
+
+                <div class="mx-2 mb-3 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-500">
+                    仅提供药学信息参考。处方药、急重症、儿童孕产等敏感场景请咨询医生或执业药师。
+                </div>
+            </div>
+        </aside>
+
+        <!-- Prompt Messages Container - height follows viewport -->
+        <main class="flex h-screen min-w-0 flex-1 flex-col">
+            <header class="flex min-h-16 items-center justify-between border-b border-slate-300 bg-slate-50 px-4 py-3 sm:px-6">
+                <div class="min-w-0">
+                    <h1 class="truncate text-base font-semibold text-slate-800">药业智能咨询助手</h1>
+                    <p class="mt-1 truncate text-xs text-slate-500" id="topbarHint">服务正在连接</p>
+                </div>
+                <div class="inline-flex items-center gap-x-2 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600">
+                    <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                    <span id="statusBar">初始化中</span>
+                </div>
+            </header>
+
+            <!-- Prompt Messages -->
+            <section
+                id="chatContainer"
+                class="flex-1 space-y-6 overflow-y-auto bg-slate-200 p-4 text-sm leading-6 text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-300 sm:p-6 sm:text-base sm:leading-7"
+            >
+                <div class="mx-auto flex w-full max-w-4xl flex-col gap-6" id="chatInner">
+                    <div class="flex items-start">
+                        <img
+                            class="mr-2 h-8 w-8 rounded-full"
+                            src="https://dummyimage.com/128x128/354ea1/ffffff&text=AI"
+                            alt="AI"
+                        />
+                        <div class="flex min-h-[85px] rounded-b-xl rounded-tr-xl bg-slate-50 p-4 shadow-sm dark:bg-slate-800 sm:min-h-0 sm:max-w-md md:max-w-2xl">
+                            <div class="space-y-3">
+                                <p>您好，我是药业智能咨询助手。您可以问药品用法、禁忌、不良反应，也可以继续追问上一轮提到的药品。</p>
+                                <p>如果知识库依据不足，我会直接说明，不会硬编。</p>
+                            </div>
+                        </div>
+                        <div class="ml-2 mt-1 flex flex-col-reverse gap-2 text-slate-500 sm:flex-row">
+                            <button class="hover:text-blue-600" type="button" title="复制">
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    class="h-5 w-5"
+                                    viewBox="0 0 24 24"
+                                    stroke-width="2"
+                                    stroke="currentColor"
+                                    fill="none"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                                    <path d="M8 8m0 2a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2z"></path>
+                                    <path d="M16 8v-2a2 2 0 0 0 -2 -2h-8a2 2 0 0 0 -2 2v8a2 2 0 0 0 2 2h2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <footer class="border-t border-slate-300 bg-slate-50 px-4 py-3 sm:px-6">
+                <div class="mx-auto w-full max-w-4xl">
+                    <!-- Suggestions pannel above input -->
+                    <div class="flex w-full gap-x-2 overflow-x-auto whitespace-nowrap text-xs text-slate-600 dark:text-slate-300 sm:text-sm">
+                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('能对话几轮')">
+                            能对话几轮
+                        </button>
+                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('小孩能吃吗？')">
+                            小孩能吃吗？
+                        </button>
+                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('布洛芬缓释胶囊有什么不良反应？')">
+                            布洛芬副作用
+                        </button>
+                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('一个完全不存在的药ABC怎么吃？')">
+                            兜底测试
+                        </button>
+                    </div>
+
+                    <!-- Prompt message input -->
+                    <form
+                        id="promptForm"
+                        class="mt-2 flex w-full items-center rounded-md bg-slate-200 p-2 dark:bg-slate-900"
+                    >
+                        <label for="inputBox" class="sr-only">Enter your prompt</label>
+                        <div>
+                            <button
+                                class="hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-600 sm:p-2"
+                                type="button"
+                                title="补充说明"
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    class="h-6 w-6"
+                                    aria-hidden="true"
+                                    viewBox="0 0 24 24"
+                                    stroke-width="2"
+                                    stroke="currentColor"
+                                    fill="none"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                                    <path d="M12 5l0 14"></path>
+                                    <path d="M5 12l14 0"></path>
+                                </svg>
+                                <span class="sr-only">Add</span>
+                            </button>
+                        </div>
+                        <textarea
+                            id="inputBox"
+                            rows="1"
+                            class="mx-2 flex min-h-full w-full resize-none rounded-md border border-slate-300 bg-slate-200 p-2 text-base text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600 dark:border-slate-300/20 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-400 dark:focus:border-blue-600 dark:focus:ring-blue-600"
+                            placeholder="输入药品、症状或继续追问..."
+                        ></textarea>
+                        <div>
+                            <button
+                                id="sendBtn"
+                                class="inline-flex hover:text-blue-600 disabled:text-slate-400 dark:text-slate-200 dark:hover:text-blue-600 sm:p-2"
+                                type="submit"
+                                title="发送"
+                            >
+                                <span id="sendIdle">
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        class="h-6 w-6"
+                                        aria-hidden="true"
+                                        viewBox="0 0 24 24"
+                                        stroke-width="2"
+                                        stroke="currentColor"
+                                        fill="none"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                                        <path d="M10 14l11 -11"></path>
+                                        <path d="M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"></path>
+                                    </svg>
+                                </span>
+                                <span id="sendBusy" class="hidden items-center gap-1">
+                                    <span class="typing-dot"></span>
+                                    <span class="typing-dot"></span>
+                                    <span class="typing-dot"></span>
+                                </span>
+                                <span class="sr-only">Send message</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const chatInner = document.getElementById('chatInner');
+        const promptForm = document.getElementById('promptForm');
+        const inputBox = document.getElementById('inputBox');
+        const sendBtn = document.getElementById('sendBtn');
+        const sendIdle = document.getElementById('sendIdle');
+        const sendBusy = document.getElementById('sendBusy');
+        const statusBar = document.getElementById('statusBar');
+        const topbarHint = document.getElementById('topbarHint');
+        const contextStack = document.getElementById('contextStack');
+        const metricTurns = document.getElementById('metricTurns');
+        const metricTopic = document.getElementById('metricTopic');
+
+        let chatHistory = [];
+
+        inputBox.addEventListener('input', () => {
+            inputBox.style.height = 'auto';
+            inputBox.style.height = Math.min(inputBox.scrollHeight, 150) + 'px';
+        });
+
+        inputBox.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendQuestion();
+            }
+        });
+
+        promptForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            sendQuestion();
+        });
+
+        contextStack.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-question]');
+            if (!item) return;
+            askQuick(item.dataset.question || '');
+        });
+
+        function askQuick(question) {
+            inputBox.value = question;
+            inputBox.dispatchEvent(new Event('input'));
+            sendQuestion();
+        }
+
+        function resetConversation() {
+            chatHistory = [];
+            chatInner.innerHTML = '';
+            addMessage('bot', '您好，我是药业智能咨询助手。您可以问药品用法、禁忌、不良反应，也可以继续追问上一轮提到的药品。\n\n如果知识库依据不足，我会直接说明，不会硬编。');
+            updateContext();
+            statusBar.textContent = '服务就绪';
+            topbarHint.textContent = '已开启新对话';
+            inputBox.focus();
+        }
+
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function formatText(text) {
+            return escapeHtml(text)
+                .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-slate-950">$1</strong>')
+                .replace(/(^|\n)\s*[-*]\s+/g, '$1• ')
+                .replace(/\n/g, '<br>');
+        }
+
+        function triageClass(level) {
+            if (level === '急症' || level === '重症') return 'border-red-200 bg-red-50 text-red-700';
+            if (level === '中症') return 'border-amber-200 bg-amber-50 text-amber-700';
+            return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+        }
+
+        function scrollToBottom() {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function setBusy(isBusy) {
+            sendBtn.disabled = isBusy;
+            sendIdle.classList.toggle('hidden', isBusy);
+            sendBusy.classList.toggle('hidden', !isBusy);
+            sendBusy.classList.toggle('inline-flex', isBusy);
+            if (isBusy) {
+                statusBar.textContent = '生成中';
+            } else if (statusBar.textContent === '生成中' || statusBar.textContent === '初始化中') {
+                statusBar.textContent = '服务就绪';
+            }
+        }
+
+        function copyText(text) {
+            if (!navigator.clipboard || !text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                statusBar.textContent = '已复制';
+            }).catch(() => {
+                statusBar.textContent = '复制失败';
+            });
+        }
+
+        function assistantActions(text) {
+            const actions = document.createElement('div');
+            actions.className = 'ml-2 mt-1 flex flex-col-reverse gap-2 text-slate-500 sm:flex-row';
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'hover:text-blue-600';
+            copyBtn.type = 'button';
+            copyBtn.title = '复制';
+            copyBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                    <path d="M8 8m0 2a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2z"></path>
+                    <path d="M16 8v-2a2 2 0 0 0 -2 -2h-8a2 2 0 0 0 -2 2v8a2 2 0 0 0 2 2h2"></path>
+                </svg>
+            `;
+            copyBtn.addEventListener('click', () => copyText(text()));
+            actions.appendChild(copyBtn);
+            return actions;
+        }
+
+        function addMessage(role, text, extra = {}) {
+            const isUser = role === 'user';
+            const wrap = document.createElement('div');
+            wrap.className = isUser ? 'flex flex-row-reverse items-start' : 'flex items-start';
+
+            const avatar = document.createElement('img');
+            avatar.className = isUser ? 'ml-2 h-8 w-8 rounded-full' : 'mr-2 h-8 w-8 rounded-full';
+            avatar.src = isUser
+                ? 'https://dummyimage.com/128x128/363536/ffffff&text=U'
+                : 'https://dummyimage.com/128x128/354ea1/ffffff&text=AI';
+            avatar.alt = isUser ? '用户' : 'AI';
+
+            const bubble = document.createElement('div');
+            bubble.className = isUser
+                ? 'flex rounded-b-xl rounded-tl-xl bg-blue-50 p-4 shadow-sm dark:bg-slate-800 sm:max-w-md md:max-w-2xl'
+                : 'flex min-h-[85px] rounded-b-xl rounded-tr-xl bg-slate-50 p-4 shadow-sm dark:bg-slate-800 sm:min-h-0 sm:max-w-md md:max-w-2xl';
+            bubble.innerHTML = buildBubbleHtml(text, extra);
+
+            wrap.appendChild(avatar);
+            wrap.appendChild(bubble);
+            if (!isUser) {
+                wrap.appendChild(assistantActions(() => bubble.dataset.rawText || text || ''));
+            }
+            bubble.dataset.rawText = text || '';
+            chatInner.appendChild(wrap);
+            scrollToBottom();
+            return { wrap, bubble };
+        }
+
+        function buildBubbleHtml(text, extra = {}) {
+            let html = '<div class="w-full space-y-3">';
+            const badges = [];
+            if (extra.triage && extra.triage.level) {
+                const level = extra.triage.level;
+                badges.push(`<span class="inline-flex rounded-full border px-2 py-0.5 text-xs ${triageClass(level)}">分诊：${escapeHtml(level)}</span>`);
+            }
+            if (extra.retrieved && extra.retrieved.length > 0) {
+                badges.push(`<span class="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs text-slate-500">检索：${extra.retrieved.length}条</span>`);
+            }
+            if (extra.issues && extra.issues.length > 0) {
+                badges.push('<span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">需复核</span>');
+            }
+            if (badges.length) html += `<div class="flex flex-wrap gap-1.5">${badges.join('')}</div>`;
+            html += text
+                ? `<p>${formatText(text)}</p>`
+                : '<span class="inline-flex items-center gap-1"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>';
+            if (extra.steps && extra.steps.length > 0) {
+                html += `<div class="border-t border-slate-200 pt-2 text-xs leading-5 text-slate-500">${escapeHtml(extra.steps.join(' -> '))}</div>`;
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function updateContext() {
+            metricTurns.textContent = String(chatHistory.length);
+            const last = chatHistory[chatHistory.length - 1];
+            if (!last) {
+                metricTopic.textContent = '--';
+                contextStack.innerHTML = '<div class="flex w-full flex-col gap-y-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-left text-sm text-slate-500">等待第一轮咨询</div>';
+                return;
+            }
+            const topic = extractTopic(last.question);
+            metricTopic.textContent = topic || '追问';
+            const items = chatHistory.slice(-5).reverse().map((item, index) => {
+                const q = escapeHtml(item.question.length > 44 ? item.question.slice(0, 44) + '...' : item.question);
+                const turn = chatHistory.length - index;
+                return `
+                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" data-question="${escapeHtml(item.question)}">
+                        <h2 class="text-sm font-medium text-slate-700 dark:text-slate-200">${q}</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">第 ${turn} 轮</p>
+                    </button>
+                `;
+            });
+            contextStack.innerHTML = items.join('');
+        }
+
+        function extractTopic(text) {
+            const cleaned = String(text || '')
+                .replace(/怎么吃|怎么服用|有什么|不良反应|副作用|禁忌|注意事项|饭前|饭后|能吃吗|可以用吗|作用|相似|区别|吗|呢|的/g, '')
+                .replace(/[，。！？、,.!?]/g, ' ')
+                .trim();
+            const match = cleaned.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,12}/);
+            return match ? match[0] : '';
+        }
+
+        async function sendQuestion() {
+            const question = inputBox.value.trim();
+            if (!question || sendBtn.disabled) return;
+
+            addMessage('user', question);
+            inputBox.value = '';
+            inputBox.style.height = 'auto';
+            setBusy(true);
+            topbarHint.textContent = '正在处理本轮咨询';
+
+            const assistant = addMessage('bot', '', {});
+            let answerText = '';
+            let latestMeta = {};
+
+            function renderAssistant() {
+                assistant.bubble.innerHTML = buildBubbleHtml(answerText, latestMeta);
+                assistant.bubble.dataset.rawText = answerText || latestMeta.answer || '';
+                scrollToBottom();
+            }
+
+            try {
+                const resp = await fetch('/api/ask_stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json; charset=utf-8',
+                        'Accept': 'text/event-stream'
+                    },
+                    cache: 'no-store',
+                    body: JSON.stringify({ question, history: chatHistory })
+                });
+
+                if (!resp.ok || !resp.body) {
+                    throw new Error(`HTTP ${resp.status}`);
+                }
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+                    for (const part of parts) {
+                        const line = part.trim();
+                        if (!line.startsWith('data: ')) continue;
+                        const json = JSON.parse(line.slice(6));
+
+                        if (json.type === 'meta') {
+                            latestMeta = json.result || {};
+                            if (latestMeta.answer && !answerText) answerText = latestMeta.answer;
+                            renderAssistant();
+                            if (latestMeta.steps && latestMeta.steps.length) {
+                                statusBar.textContent = latestMeta.steps[latestMeta.steps.length - 1];
+                            }
+                        }
+
+                        if (json.type === 'chunk') {
+                            answerText += json.text || '';
+                            renderAssistant();
+                        }
+
+                        if (json.type === 'done') {
+                            if (json.result) latestMeta = json.result;
+                            if (!answerText && latestMeta.answer) answerText = latestMeta.answer;
+                            renderAssistant();
+                            chatHistory.push({ question, answer: latestMeta.answer || answerText });
+                            if (chatHistory.length > 5) chatHistory.shift();
+                            updateContext();
+                            statusBar.textContent = (latestMeta.issues && latestMeta.issues.length) ? '已标记复核' : '处理完成';
+                        }
+
+                        if (json.type === 'error') {
+                            answerText += `\n\n处理出错：${json.error}`;
+                            renderAssistant();
+                            statusBar.textContent = '处理出错';
+                        }
+                    }
+                }
+            } catch (error) {
+                statusBar.textContent = '流式连接断开，正在重试';
+                topbarHint.textContent = '正在切换到普通问答';
+                try {
+                    const fallback = await fetchPlainAnswer(question, chatHistory);
+                    latestMeta = fallback || latestMeta;
+                    answerText = latestMeta.answer || answerText || '抱歉，这次没有拿到有效回答，请稍后再试。';
+                    renderAssistant();
+                    chatHistory.push({ question, answer: answerText });
+                    if (chatHistory.length > 5) chatHistory.shift();
+                    updateContext();
+                    statusBar.textContent = '已用普通模式完成';
+                } catch (fallbackError) {
+                    answerText += `\n\n网络错误：${error.message}\n\n请确认当前地址是 http://localhost:5006，不要用 file:// 本地文件或 http://0.0.0.0:5006 打开。`;
+                    renderAssistant();
+                    statusBar.textContent = '网络错误';
+                }
+            } finally {
+                setBusy(false);
+                topbarHint.textContent = '可以继续追问';
+                inputBox.focus();
+            }
+        }
+
+        async function fetchPlainAnswer(question, history) {
+            const resp = await fetch('/api/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                cache: 'no-store',
+                body: JSON.stringify({ question, history })
+            });
+            if (!resp.ok) {
+                throw new Error(`HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            if (!data.success || !data.result) {
+                throw new Error(data.error || '普通问答失败');
+            }
+            return data.result;
+        }
+
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.vector_db) {
+                    document.getElementById('metricChunks').textContent = String(data.chunks || '--');
+                    document.getElementById('metricApis').textContent = String((data.apis || []).length || '--');
+                    statusBar.textContent = '服务就绪';
+                    topbarHint.textContent = `知识库 ${data.chunks} 块`;
+                } else {
+                    statusBar.textContent = '知识库未就绪';
+                    topbarHint.textContent = '等待后端加载';
+                }
+            })
+            .catch(() => {
+                statusBar.textContent = '连接失败';
+                topbarHint.textContent = '请用 http://localhost:5006 打开';
+            });
+    </script>
+</body>
+</html>

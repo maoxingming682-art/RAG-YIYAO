@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>药业智能库存预测看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f0f2f5; min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a8a6e 0%, #0d6b53 100%);
+            color: white; padding: 16px 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header .subtitle { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+        .header .back-link { color: white; text-decoration: none; font-size: 13px;
+            background: rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; }
+        .header .back-link:hover { background: rgba(255,255,255,0.3); }
+
+        /* 数据集切换 */
+        .dataset-switch { display: flex; gap: 4px; background: rgba(255,255,255,0.15); border-radius: 8px; padding: 4px; }
+        .ds-btn { background: transparent; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+        .ds-btn:hover { background: rgba(255,255,255,0.1); }
+        .ds-btn.active { background: white; color: #1a8a6e; font-weight: 600; }
+
+        /* Transformer对比卡片 */
+        .tf-compare { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; gap: 20px; align-items: center; }
+        .tf-compare h3 { font-size: 15px; color: #333; margin-bottom: 0; white-space: nowrap; }
+        .tf-compare-card { flex: 1; text-align: center; border-radius: 10px; padding: 16px; }
+        .tf-compare-card.mm { background: #e8f5e9; border: 2px solid #c8e6c9; }
+        .tf-compare-card.tf { background: #e3f2fd; border: 2px solid #bbdefb; }
+        .tf-compare-card.winner { border-width: 3px; border-color: #1a8a6e; }
+        .tf-compare-card .label { font-size: 13px; color: #555; margin-bottom: 6px; }
+        .tf-compare-card .mape { font-size: 28px; font-weight: 700; }
+        .tf-compare-card.mm .mape { color: #2e7d32; }
+        .tf-compare-card.tf .mape { color: #1565c0; }
+        .tf-compare-card .badge { font-size: 11px; color: #888; margin-top: 4px; }
+        .tf-compare-card .winner-badge { display: inline-block; background: #1a8a6e; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-top: 4px; }
+        .tf-vs { font-size: 20px; color: #999; font-weight: 700; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+        /* KPI卡片 */
+        .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 20px; }
+        .kpi-card {
+            background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        .kpi-card .label { font-size: 13px; color: #888; margin-bottom: 8px; }
+        .kpi-card .value { font-size: 28px; font-weight: 700; color: #1a8a6e; }
+        .kpi-card .unit { font-size: 13px; color: #aaa; margin-top: 4px; }
+        .kpi-card.warning .value { color: #e67e22; }
+        .kpi-card.danger .value { color: #e74c3c; }
+
+        /* 主布局 */
+        .main-grid { display: grid; grid-template-columns: 240px 1fr; gap: 20px; }
+        .sidebar { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); height: fit-content; }
+        .sidebar h3 { font-size: 14px; color: #333; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+        .sidebar .filter-item { padding: 8px 12px; cursor: pointer; border-radius: 6px; font-size: 13px; color: #555; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar .filter-item:hover { background: #f0f7f5; }
+        .sidebar .filter-item.active { background: #e8f5e9; color: #1a8a6e; font-weight: 600; }
+        .sidebar .filter-item .count { font-size: 11px; color: #999; background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+        .sidebar .filter-item.active .count { background: #c8e6c9; color: #2e7d32; }
+        .sidebar .search-box { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; margin-bottom: 12px; outline: none; }
+        .sidebar .search-box:focus { border-color: #1a8a6e; }
+        .sidebar .sort-select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; margin-bottom: 12px; outline: none; }
+        .sidebar .drift-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #555; padding: 8px 0; cursor: pointer; }
+        .sidebar .drift-toggle input { cursor: pointer; }
+
+        /* 商品列表表格 */
+        .content-area { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .table-wrapper { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead th { padding: 10px 12px; text-align: left; color: #888; font-weight: 600; border-bottom: 2px solid #eee; cursor: pointer; white-space: nowrap; }
+        thead th:hover { color: #1a8a6e; }
+        tbody td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; }
+        tbody tr { cursor: pointer; transition: background 0.15s; }
+        tbody tr:hover { background: #f0f7f5; }
+        tbody tr.selected { background: #e8f5e9; }
+        .drift-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .drift-badge.up { background: #fff3e0; color: #e65100; }
+        .drift-badge.down { background: #e3f2fd; color: #1565c0; }
+        .drift-badge.none { color: #ccc; }
+        .mape-tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+        .mape-tag.exc { background: #e8f5e9; color: #2e7d32; }
+        .mape-tag.good { background: #e3f2fd; color: #1565c0; }
+        .mape-tag.fair { background: #fff8e1; color: #f57f17; }
+        .mape-tag.poor { background: #ffebee; color: #c62828; }
+
+        /* 模型标签 */
+        .model-tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+        .model-tag.ExponentialSmoothing { background: #e3f2fd; color: #1565c0; }
+        .model-tag.SeasonalNaive { background: #f3e5f5; color: #7b1fa2; }
+        .model-tag.MovingAverage { background: #e0f7fa; color: #00838f; }
+        .model-tag.LinearRegression { background: #fff3e0; color: #e65100; }
+        .model-tag.Ensemble { background: #e8f5e9; color: #2e7d32; font-weight: 600; }
+
+        /* 模型分布条 */
+        .model-dist-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+        .model-dist-row .name { width: 140px; color: #555; }
+        .model-dist-row .bar-bg { flex: 1; height: 16px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+        .model-dist-row .bar { height: 100%; border-radius: 4px; }
+        .model-dist-row .pct { width: 50px; text-align: right; color: #888; }
+        .model-dist-row .mape { width: 60px; text-align: right; color: #1a8a6e; font-weight: 600; }
+
+        /* 重训按钮 */
+        .retrain-btn { background: #e67e22; color: white; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+        .retrain-btn:hover { background: #d35400; }
+        .retrain-btn:disabled { background: #aaa; cursor: not-allowed; }
+
+        /* 弹窗 */
+        .modal { position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; border-radius: 12px; max-width: 700px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal-header { padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h3 { font-size: 18px; color: #333; }
+        .modal-close { font-size: 28px; cursor: pointer; color: #999; line-height: 1; }
+        .modal-body { padding: 20px; }
+        .retrain-stat { display: inline-block; background: #f0f7f5; border-radius: 8px; padding: 12px 20px; margin: 4px; text-align: center; }
+        .retrain-stat .num { font-size: 24px; font-weight: 700; color: #1a8a6e; }
+        .retrain-stat .label { font-size: 12px; color: #888; }
+        .retrain-stat.improve .num { color: #2e7d32; }
+        .retrain-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+        .retrain-table th { padding: 8px; text-align: left; color: #888; border-bottom: 2px solid #eee; }
+        .retrain-table td { padding: 8px; border-bottom: 1px solid #f5f5f5; }
+
+        /* 分页 */
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; }
+        .pagination button { padding: 6px 12px; border: 1px solid #ddd; background: white; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .pagination button:hover { background: #f0f7f5; }
+        .pagination button:disabled { color: #ccc; cursor: not-allowed; }
+        .pagination button.active { background: #1a8a6e; color: white; border-color: #1a8a6e; }
+        .pagination .info { font-size: 13px; color: #888; }
+
+        /* 图表区 */
+        .chart-section { background: white; border-radius: 12px; padding: 20px; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .chart-section h3 { font-size: 16px; color: #333; margin-bottom: 16px; }
+        #forecastChart { width: 100%; height: 360px; }
+        .chart-empty { text-align: center; color: #999; padding: 60px 0; font-size: 14px; }
+
+        /* LLM建议区 */
+        .restock-section { background: white; border-radius: 12px; padding: 20px; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .restock-section h3 { font-size: 16px; color: #333; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .restock-section .generate-btn { background: #1a8a6e; color: white; border: none; border-radius: 6px; padding: 8px 20px; font-size: 13px; cursor: pointer; }
+        .restock-section .generate-btn:hover { background: #0d6b53; }
+        .restock-section .generate-btn:disabled { background: #aaa; cursor: not-allowed; }
+        .restock-content { font-size: 14px; line-height: 1.8; color: #333; white-space: pre-wrap; }
+        .restock-content h1, .restock-content h2, .restock-content h3 { color: #1a8a6e; margin: 12px 0 8px; }
+        .restock-content ul, .restock-content ol { padding-left: 20px; margin: 8px 0; }
+        .restock-loading { text-align: center; color: #999; padding: 40px; }
+
+        .loading { text-align: center; color: #999; padding: 40px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>📊 药业智能库存预测看板</h1>
+            <div class="subtitle" id="subtitle">9000商品 · 2年数据 · SKU修正+日期回归 · 未来30天预测+补货建议</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <div class="dataset-switch">
+                <button class="ds-btn" data-ds="5000" onclick="switchDataset('5000')">1年/5000商品</button>
+                <button class="ds-btn active" data-ds="9000" onclick="switchDataset('9000')">2年/9000商品</button>
+            </div>
+            <a href="/store-forecast" class="back-link">门店级看板</a>
+            <a href="/" class="back-link">← 返回咨询助手</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Transformer vs 当前方案对比 -->
+        <div class="tf-compare" id="tfCompare" style="display:none">
+            <h3>⚡ 方案对比</h3>
+            <div class="tf-compare-card mm" id="tfCardMM">
+                <div class="label">SKU修正+日期回归</div>
+                <div class="mape" id="tfMMApe">-</div>
+                <div class="badge">复合SKU key + 日历特征</div>
+            </div>
+            <div class="tf-vs">VS</div>
+            <div class="tf-compare-card tf" id="tfCardTF">
+                <div class="label">PyTorch Transformer</div>
+                <div class="mape" id="tfTFApe">-</div>
+                <div class="badge">深度学习·跨商品学习</div>
+            </div>
+        </div>
+
+        <!-- KPI卡片 -->
+        <div class="kpi-row" id="kpiRow">
+            <div class="kpi-card"><div class="label">商品总数</div><div class="value" id="kpiProducts">-</div><div class="unit">个</div></div>
+            <div class="kpi-card"><div class="label">预测30天总销量</div><div class="value" id="kpiForecast">-</div><div class="unit">盒</div></div>
+            <div class="kpi-card"><div class="label">建议总库存</div><div class="value" id="kpiStock">-</div><div class="unit">盒</div></div>
+            <div class="kpi-card warning"><div class="label">漂移商品</div><div class="value" id="kpiDrift">-</div><div class="unit">个需重训</div></div>
+            <div class="kpi-card"><div class="label">平均MAPE</div><div class="value" id="kpiMape">-</div><div class="unit">预测误差</div></div>
+        </div>
+
+        <!-- 模型分布 -->
+        <div style="background:white;border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+            <h3 style="font-size:15px;color:#333;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+                <span>🤖 预测模型分布 <span style="font-size:12px;color:#888;font-weight:normal">9000版使用 DateLinearRegression / DateRidge 两个日期回归候选；5000版保留5模型对比</span></span>
+                <button class="retrain-btn" id="retrainBtn">🔄 重训漂移商品</button>
+            </h3>
+            <div id="modelDist"><div class="loading">加载中...</div></div>
+        </div>
+
+        <!-- 重训结果弹窗 -->
+        <div id="retrainModal" class="modal" style="display:none">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🔄 重训结果</h3>
+                    <span class="modal-close" onclick="document.getElementById('retrainModal').style.display='none'">&times;</span>
+                </div>
+                <div id="retrainResult" class="modal-body"></div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <!-- 侧边栏：筛选 -->
+            <div class="sidebar">
+                <h3>品类筛选</h3>
+                <input type="text" class="search-box" id="searchBox" placeholder="搜索商品名...">
+                <select class="sort-select" id="sortSelect">
+                    <option value="recommended">按建议库存排序</option>
+                    <option value="forecast">按预测销量排序</option>
+                    <option value="mape">按MAPE排序</option>
+                    <option value="drift">按漂移程度排序</option>
+                </select>
+                <div id="categoryFilters"><div class="loading">加载中...</div></div>
+                <label class="drift-toggle">
+                    <input type="checkbox" id="driftOnly"> 只看漂移商品
+                </label>
+            </div>
+
+            <!-- 主内容：商品列表 -->
+            <div class="content-area">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>商品名</th>
+                                <th>品类</th>
+                                <th>预测模型</th>
+                                <th>预测30天</th>
+                                <th>日均</th>
+                                <th>建议库存</th>
+                                <th>MAPE</th>
+                                <th>漂移</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productTable">
+                            <tr><td colspan="8" class="loading">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="pagination"></div>
+            </div>
+        </div>
+
+        <!-- 预测图表 -->
+        <div class="chart-section">
+            <h3>📈 销量预测图表 <span style="font-size:13px;color:#888;font-weight:normal" id="chartTitle">点击上方商品查看预测曲线</span></h3>
+            <div id="forecastChart">
+                <div class="chart-empty">点击表格中任意一行，查看该商品的历史销量和未来30天预测曲线</div>
+            </div>
+        </div>
+
+        <!-- LLM补货建议 -->
+        <div class="restock-section">
+            <h3>📋 AI补货建议 <button class="generate-btn" id="generateRestockBtn">生成建议</button></h3>
+            <div class="restock-content" id="restockContent">
+                <div style="color:#999;text-align:center;padding:20px">点击"生成建议"按钮，AI将基于当前预测数据生成可执行的补货操作清单</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentCategory = '';
+        let currentSearch = '';
+        let currentSort = 'recommended';
+        let currentPage = 1;
+        let totalPages = 1;
+        let driftOnly = false;
+        let selectedProduct = null;
+        let chartInstance = null;
+
+        let currentDataset = '9000';
+
+        // ===== 数据集切换 =====
+        function switchDataset(ds) {
+            currentDataset = ds;
+            document.querySelectorAll('.ds-btn').forEach(b => b.classList.toggle('active', b.dataset.ds === ds));
+            document.getElementById('subtitle').textContent = ds === '9000'
+                ? '9000商品 · 2年数据 · SKU修正+日期回归 · 未来30天预测+补货建议'
+                : '5000商品 · 1年数据 · 多模型选优 · 未来30天预测+补货建议';
+            loadOverview();
+            loadProducts();
+            loadTransformerCompare();
+        }
+
+        // ===== Transformer对比 =====
+        async function loadTransformerCompare() {
+            try {
+                const resp = await fetch('/api/forecast/transformer_compare?dataset=' + currentDataset);
+                const data = await resp.json();
+                if (data.success) {
+                    const c = data.compare;
+                    document.getElementById('tfCompare').style.display = 'flex';
+                    document.getElementById('tfCardMM').querySelector('.label').textContent = c.multi_model.label;
+                    document.getElementById('tfCardTF').querySelector('.label').textContent = c.transformer.label;
+                    document.getElementById('tfMMApe').textContent = c.multi_model.avg_mape + '%';
+                    document.getElementById('tfTFApe').textContent = c.transformer.avg_mape + '%';
+                    // 标记胜者
+                    document.getElementById('tfCardMM').classList.toggle('winner', c.winner === 'multi_model');
+                    document.getElementById('tfCardTF').classList.toggle('winner', c.winner === 'transformer');
+                    if (c.winner === 'multi_model') {
+                        document.getElementById('tfCardMM').querySelector('.badge').innerHTML = '<span class="winner-badge">✅ 当前最优</span>';
+                    } else {
+                        document.getElementById('tfCardTF').querySelector('.badge').innerHTML = '<span class="winner-badge">✅ 当前最优</span>';
+                    }
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // ===== 加载总览 =====
+        async function loadOverview() {
+            try {
+                const resp = await fetch('/api/forecast/overview?dataset=' + currentDataset);
+                const data = await resp.json();
+                if (data.success) {
+                    const o = data.overview;
+                    document.getElementById('kpiProducts').textContent = o.total_products.toLocaleString();
+                    document.getElementById('kpiForecast').textContent = o.total_forecast_30days.toLocaleString();
+                    document.getElementById('kpiStock').textContent = o.total_recommended_stock.toLocaleString();
+                    document.getElementById('kpiDrift').textContent = o.drift_count;
+                    document.getElementById('kpiMape').textContent = o.avg_mape + '%';
+
+                    // 品类筛选
+                    const catFilters = document.getElementById('categoryFilters');
+                    let html = `<div class="filter-item active" data-cat="">全部商品 <span class="count">${o.total_products}</span></div>`;
+                    for (const [cat, stats] of Object.entries(o.category_stats).sort((a,b) => b[1].count - a[1].count)) {
+                        html += `<div class="filter-item" data-cat="${cat}">${cat} <span class="count">${stats.count}</span></div>`;
+                    }
+                    catFilters.innerHTML = html;
+                    catFilters.querySelectorAll('.filter-item').forEach(el => {
+                        el.addEventListener('click', () => {
+                            catFilters.querySelectorAll('.filter-item').forEach(e => e.classList.remove('active'));
+                            el.classList.add('active');
+                            currentCategory = el.dataset.cat;
+                            currentPage = 1;
+                            loadProducts();
+                        });
+                    });
+
+                    // 渲染模型分布
+                    if (o.model_stats) {
+                        const modelColors = {
+                            'ExponentialSmoothing': '#1565c0', 'SeasonalNaive': '#7b1fa2',
+                            'MovingAverage': '#00838f', 'LinearRegression': '#e65100', 'Ensemble': '#2e7d32',
+                            'DateLinearRegression': '#e65100', 'DateRidge': '#8d6e63',
+                        };
+                        const md = document.getElementById('modelDist');
+                        let mdHtml = '';
+                        const sorted = Object.entries(o.model_stats).sort((a,b) => b[1].count - a[1].count);
+                        for (const [name, stats] of sorted) {
+                            const color = modelColors[name] || '#888';
+                            mdHtml += `<div class="model-dist-row">
+                                <span class="name"><span class="model-tag ${name}">${name}</span></span>
+                                <div class="bar-bg"><div class="bar" style="width:${stats.pct}%;background:${color}"></div></div>
+                                <span class="pct">${stats.pct}%</span>
+                                <span class="mape">MAPE ${stats.avg_mape}%</span>
+                            </div>`;
+                        }
+                        md.innerHTML = mdHtml;
+                    }
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // ===== 加载商品列表 =====
+        async function loadProducts() {
+            const params = new URLSearchParams({
+                category: currentCategory,
+                search: currentSearch,
+                sort: currentSort,
+                drift_only: driftOnly,
+                page: currentPage,
+                per_page: 50,
+                dataset: currentDataset,
+            });
+            try {
+                const resp = await fetch('/api/forecast/products?' + params);
+                const data = await resp.json();
+                if (data.success) {
+                    totalPages = data.total_pages;
+                    renderTable(data.products);
+                    renderPagination(data);
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function renderTable(products) {
+            const tbody = document.getElementById('productTable');
+            if (!products.length) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px">无匹配商品</td></tr>';
+                return;
+            }
+            const modelColors = {
+                'ExponentialSmoothing': '#1565c0', 'SeasonalNaive': '#7b1fa2',
+                'MovingAverage': '#00838f', 'LinearRegression': '#e65100', 'Ensemble': '#2e7d32',
+                'DateLinearRegression': '#e65100', 'DateRidge': '#8d6e63',
+            };
+            tbody.innerHTML = products.map(p => {
+                const mapeClass = p.mape < 15 ? 'exc' : p.mape < 25 ? 'good' : p.mape < 35 ? 'fair' : 'poor';
+                const modelName = p.model_used || '-';
+                let driftBadge = '<span class="drift-badge none">-</span>';
+                if (p.is_drift) {
+                    driftBadge = p.drift_ratio > 0
+                        ? `<span class="drift-badge up">↑${p.drift_ratio}%</span>`
+                        : `<span class="drift-badge down">↓${Math.abs(p.drift_ratio)}%</span>`;
+                }
+                return `<tr data-key="${p.product_key}">
+                    <td>${p.display_name || p.drug_name}</td>
+                    <td style="color:#666">${p.category}</td>
+                    <td><span class="model-tag ${modelName}">${modelName}</span></td>
+                    <td><b>${p.total_forecast_30days.toLocaleString()}</b></td>
+                    <td>${p.avg_daily}</td>
+                    <td style="color:#1a8a6e;font-weight:600">${p.recommended_stock.toLocaleString()}</td>
+                    <td><span class="mape-tag ${mapeClass}">${p.mape}%</span></td>
+                    <td>${driftBadge}</td>
+                </tr>`;
+            }).join('');
+
+            // 点击行 → 加载图表
+            tbody.querySelectorAll('tr').forEach(tr => {
+                tr.addEventListener('click', () => {
+                    tbody.querySelectorAll('tr').forEach(t => t.classList.remove('selected'));
+                    tr.classList.add('selected');
+                    loadChart(tr.dataset.key);
+                });
+            });
+        }
+
+        function renderPagination(data) {
+            const pag = document.getElementById('pagination');
+            if (data.total_pages <= 1) { pag.innerHTML = `<span class="info">共${data.total}个商品</span>`; return; }
+            let html = `<button onclick="goPage(1)" ${currentPage<=1?'disabled':''}>首页</button>`;
+            html += `<button onclick="goPage(${currentPage-1})" ${currentPage<=1?'disabled':''}>上一页</button>`;
+            const start = Math.max(1, currentPage - 2), end = Math.min(data.total_pages, currentPage + 2);
+            for (let i = start; i <= end; i++) {
+                html += `<button class="${i===currentPage?'active':''}" onclick="goPage(${i})">${i}</button>`;
+            }
+            html += `<button onclick="goPage(${currentPage+1})" ${currentPage>=data.total_pages?'disabled':''}>下一页</button>`;
+            html += `<button onclick="goPage(${data.total_pages})" ${currentPage>=data.total_pages?'disabled':''}>末页</button>`;
+            html += `<span class="info">${currentPage}/${data.total_pages}页 共${data.total}个</span>`;
+            pag.innerHTML = html;
+        }
+
+        function goPage(p) { currentPage = p; loadProducts(); }
+
+        // ===== 加载预测图表 =====
+        async function loadChart(productKey) {
+            try {
+                const resp = await fetch('/api/forecast/product/' + encodeURIComponent(productKey) + '?dataset=' + currentDataset);
+                const data = await resp.json();
+                if (!data.success) return;
+                const p = data.product;
+                selectedProduct = p;
+                document.getElementById('chartTitle').textContent = `· ${p.display_name || p.drug_name} (${p.category})`;
+
+                const chartDom = document.getElementById('forecastChart');
+                if (!chartInstance) chartInstance = echarts.init(chartDom);
+                const historyDates = p.history_dates;
+                const forecastDates = p.forecast_dates;
+                // 合并日期轴：历史最后一天 = 预测前一天，衔接
+                const allDates = [...historyDates, ...forecastDates];
+                // 历史线：只有历史部分有值
+                const historySeries = [...p.history_sales, ...new Array(30).fill(null)];
+                // 预测线：历史最后一天作为衔接点
+                const forecastSeries = [...new Array(60).fill(null), ...p.forecast_values];
+                // 真实值（测试集对比，最后30天）
+                const actualSeries = [...new Array(30).fill(null), ...p.test_actual, ...new Array(0).fill(null)];
+
+                chartInstance.setOption({
+                    tooltip: { trigger: 'axis' },
+                    legend: { data: ['历史销量', '预测销量', '实际销量(测试集)'], top: 5 },
+                    grid: { left: '8%', right: '5%', top: '15%', bottom: '10%' },
+                    xAxis: { type: 'category', data: allDates, axisLabel: { fontSize: 10, rotate: 30 } },
+                    yAxis: { type: 'value', name: '销量(盒)' },
+                    series: [
+                        { name: '历史销量', type: 'line', data: historySeries,
+                          itemStyle: { color: '#1a8a6e' }, lineStyle: { width: 2 },
+                          connectNulls: false },
+                        { name: '预测销量', type: 'line', data: forecastSeries,
+                          itemStyle: { color: '#e67e22' }, lineStyle: { width: 2, type: 'dashed' },
+                          connectNulls: true },
+                        { name: '实际销量(测试集)', type: 'line', data: actualSeries,
+                          itemStyle: { color: '#aaa' }, lineStyle: { width: 1, type: 'dotted' },
+                          connectNulls: true },
+                    ]
+                }, true);
+            } catch (e) { console.error(e); }
+        }
+
+        // ===== LLM补货建议 =====
+        document.getElementById('generateRestockBtn').addEventListener('click', async function() {
+            const btn = this;
+            const content = document.getElementById('restockContent');
+            btn.disabled = true; btn.textContent = '生成中...';
+            const datasetTitle = currentDataset === '9000' ? '9000商品2年数据' : '5000商品1年数据';
+            content.innerHTML = `<div class="restock-loading">正在分析${datasetTitle}预测数据，生成补货建议...</div>`;
+            try {
+                const resp = await fetch('/api/forecast/restock?dataset=' + currentDataset);
+                const data = await resp.json();
+                if (data.success) {
+                    // 简单markdown转HTML
+                    let html = data.conclusion
+                        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+                        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+                        .replace(/^\d+\.\s+(.+)/gm, '<li>$1</li>')
+                        .replace(/^[-•]\s+(.+)/gm, '<li>$1</li>')
+                        .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+                        .replace(/\n/g, '<br>');
+                    // 包裹连续的li
+                    html = html.replace(/(<li>.*?<\/li>(<br>)?)+/g, m => '<ul>' + m.replace(/<br>/g,'') + '</ul>');
+                    content.innerHTML = html;
+                } else {
+                    content.innerHTML = `<div style="color:#e74c3c">生成失败: ${data.error}</div>`;
+                }
+            } catch (e) {
+                content.innerHTML = `<div style="color:#e74c3c">网络错误: ${e.message}</div>`;
+            }
+            btn.disabled = false; btn.textContent = '重新生成';
+        });
+
+        // ===== 事件绑定 =====
+        document.getElementById('searchBox').addEventListener('input', function() {
+            currentSearch = this.value;
+            currentPage = 1;
+            clearTimeout(window._searchTimer);
+            window._searchTimer = setTimeout(loadProducts, 300);
+        });
+        document.getElementById('sortSelect').addEventListener('change', function() {
+            currentSort = this.value; currentPage = 1; loadProducts();
+        });
+        document.getElementById('driftOnly').addEventListener('change', function() {
+            driftOnly = this.checked; currentPage = 1; loadProducts();
+        });
+
+        // ===== 重训漂移商品 =====
+        document.getElementById('retrainBtn').addEventListener('click', async function() {
+            const btn = this;
+            const modal = document.getElementById('retrainModal');
+            const result = document.getElementById('retrainResult');
+            btn.disabled = true; btn.textContent = '🔄 重训中...';
+            result.innerHTML = '<div style="text-align:center;padding:40px;color:#888">正在重训漂移商品，请稍候...</div>';
+            modal.style.display = 'block';
+            try {
+                const resp = await fetch('/api/forecast/retrain', { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    const r = data.result;
+                    let html = '<div style="text-align:center;margin-bottom:16px">';
+                    html += `<div class="retrain-stat"><div class="num">${r.total_drift}</div><div class="label">漂移商品</div></div>`;
+                    html += `<div class="retrain-stat"><div class="num">${r.retrained}</div><div class="label">已重训</div></div>`;
+                    html += `<div class="retrain-stat"><div class="num">${r.model_changed}</div><div class="label">切换模型</div></div>`;
+                    html += `<div class="retrain-stat improve"><div class="num">${r.mape_improvement > 0 ? '+' : ''}${r.mape_improvement}%</div><div class="label">MAPE改善</div></div>`;
+                    html += '</div>';
+                    html += `<div style="font-size:13px;color:#666;margin:12px 0">
+                        重训前平均MAPE: <b>${r.mape_before}%</b> → 重训后: <b style="color:#2e7d32">${r.mape_after}%</b>
+                        &nbsp;|&nbsp; 耗时: ${r.retrain_time}秒
+                    </div>`;
+                    // 模型切换统计
+                    if (r.model_changes && Object.keys(r.model_changes).length > 0) {
+                        html += '<div style="margin:12px 0"><b>模型切换统计:</b><br>';
+                        for (const [change, count] of Object.entries(r.model_changes).sort((a,b) => b[1]-a[1])) {
+                            html += `<span style="display:inline-block;background:#f0f7f5;padding:4px 10px;border-radius:4px;margin:4px;font-size:12px">${change}: ${count}个</span>`;
+                        }
+                        html += '</div>';
+                    }
+                    // 改善最大的商品
+                    if (r.details && r.details.length > 0) {
+                        html += '<table class="retrain-table"><thead><tr><th>商品</th><th>旧模型</th><th>新模型</th><th>旧MAPE</th><th>新MAPE</th><th>变化</th></tr></thead><tbody>';
+                        for (const d of r.details) {
+                            const changeColor = d.mape_change < 0 ? '#2e7d32' : '#e74c3c';
+                            html += `<tr>
+                                <td>${d.drug_name}</td>
+                                <td>${d.old_model || '-'}</td>
+                                <td>${d.new_model || '-'}</td>
+                                <td>${d.old_mape || '-'}%</td>
+                                <td><b>${d.new_mape || '-'}%</b></td>
+                                <td style="color:${changeColor}">${d.mape_change > 0 ? '+' : ''}${d.mape_change}%</td>
+                            </tr>`;
+                        }
+                        html += '</tbody></table>';
+                    }
+                    result.innerHTML = html;
+                    // 刷新看板数据
+                    loadOverview(); loadProducts();
+                } else {
+                    result.innerHTML = `<div style="color:#e74c3c;padding:20px">重训失败: ${data.error}</div>`;
+                }
+            } catch (e) {
+                result.innerHTML = `<div style="color:#e74c3c;padding:20px">网络错误: ${e.message}</div>`;
+            }
+            btn.disabled = false; btn.textContent = '🔄 重训漂移商品';
+        });
+
+        // 点击弹窗背景关闭
+        document.getElementById('retrainModal').addEventListener('click', function(e) {
+            if (e.target === this) this.style.display = 'none';
+        });
+
+        // ===== 初始化 =====
+        loadOverview();
+        loadProducts();
+        loadTransformerCompare();
+        window.addEventListener('resize', () => { if (chartInstance) chartInstance.resize(); });
+    </script>
+</body>
+</html>

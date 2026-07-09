@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>门店级库存预测看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+            color: #24332f;
+            background: #eef2f4;
+            min-height: 100vh;
+        }
+        .topbar {
+            background: #0f7b64;
+            color: #fff;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        }
+        .topbar h1 { font-size: 20px; font-weight: 700; letter-spacing: 0; }
+        .subtitle { font-size: 13px; opacity: 0.86; margin-top: 4px; }
+        .nav-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+        .nav-actions a {
+            color: #fff;
+            text-decoration: none;
+            background: rgba(255,255,255,0.16);
+            padding: 7px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .nav-actions a:hover { background: rgba(255,255,255,0.25); }
+        .page { max-width: 1480px; margin: 0 auto; padding: 20px; }
+        .status-strip {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 16px;
+        }
+        .status-title { font-weight: 700; color: #1e3b34; }
+        .status-text { color: #66736f; font-size: 13px; margin-top: 4px; }
+        .stage-pill {
+            border: 1px solid #c8d8d2;
+            background: #eef8f4;
+            color: #0f7b64;
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .compare-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            gap: 16px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .compare-card {
+            background: #fff;
+            border-radius: 8px;
+            padding: 18px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            border: 2px solid transparent;
+        }
+        .compare-card.winner { border-color: #0f7b64; background: #edf8f4; }
+        .compare-label { color: #66736f; font-size: 13px; margin-bottom: 8px; }
+        .compare-value { font-size: 30px; font-weight: 800; color: #0f7b64; }
+        .compare-hint { color: #8a9692; font-size: 12px; margin-top: 8px; }
+        .compare-vs { color: #88938f; font-size: 18px; font-weight: 800; }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+        .kpi {
+            background: #fff;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            min-height: 96px;
+        }
+        .kpi .label { color: #73807c; font-size: 12px; margin-bottom: 8px; }
+        .kpi .value { color: #0f7b64; font-size: 25px; font-weight: 800; line-height: 1.1; }
+        .kpi .hint { color: #9aa4a1; font-size: 12px; margin-top: 8px; }
+        .kpi.warn .value { color: #bf6a1f; }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .grid-3 {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .panel {
+            background: #fff;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            min-width: 0;
+        }
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .panel h2 { font-size: 15px; color: #1f302c; }
+        .panel-note { color: #7b8783; font-size: 12px; }
+        .chart { width: 100%; height: 300px; }
+        .chart.small { height: 250px; }
+        .work-grid {
+            display: grid;
+            grid-template-columns: 330px minmax(0, 1fr);
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .filters {
+            display: grid;
+            gap: 10px;
+        }
+        .filters label { font-size: 12px; color: #66736f; display: grid; gap: 5px; }
+        input, select {
+            width: 100%;
+            border: 1px solid #d8e0de;
+            border-radius: 6px;
+            padding: 9px 10px;
+            font-size: 13px;
+            outline: none;
+            background: #fff;
+            color: #24332f;
+        }
+        input:focus, select:focus { border-color: #0f7b64; box-shadow: 0 0 0 3px rgba(15,123,100,0.08); }
+        .button-row { display: flex; gap: 8px; }
+        button {
+            border: none;
+            background: #0f7b64;
+            color: #fff;
+            border-radius: 6px;
+            padding: 9px 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        button.secondary { background: #e7eeeb; color: #1f302c; }
+        button:hover { filter: brightness(0.95); }
+        .table-wrap { overflow: auto; max-height: 360px; border: 1px solid #edf0ef; border-radius: 8px; }
+        table { border-collapse: collapse; width: 100%; font-size: 12px; }
+        th {
+            position: sticky;
+            top: 0;
+            background: #f7faf9;
+            color: #66736f;
+            text-align: left;
+            font-weight: 700;
+            padding: 9px 10px;
+            border-bottom: 1px solid #e7ecea;
+            white-space: nowrap;
+        }
+        td {
+            padding: 9px 10px;
+            border-bottom: 1px solid #f0f3f2;
+            white-space: nowrap;
+        }
+        tr:hover td { background: #f2f8f6; cursor: pointer; }
+        tr.selected td { background: #e6f4ef; }
+        .tag {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #edf3f1;
+            color: #46615a;
+        }
+        .tag.rx { background: #eef4ff; color: #245b9b; }
+        .empty { color: #8b9693; padding: 26px; text-align: center; }
+        .series-head {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: start;
+            margin-bottom: 8px;
+        }
+        .series-title { font-size: 15px; font-weight: 700; color: #1f302c; }
+        .series-sub { font-size: 12px; color: #72807b; margin-top: 4px; line-height: 1.5; }
+        .metric-pair { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+        .mini-stat {
+            background: #f5f8f7;
+            border-radius: 6px;
+            padding: 7px 9px;
+            min-width: 82px;
+            text-align: right;
+        }
+        .mini-stat .n { font-weight: 800; color: #0f7b64; }
+        .mini-stat .t { color: #7d8885; font-size: 11px; margin-top: 2px; }
+        @media (max-width: 1100px) {
+            .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .grid-2, .grid-3, .work-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 680px) {
+            .topbar { align-items: flex-start; flex-direction: column; }
+            .page { padding: 12px; }
+            .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .status-strip { flex-direction: column; align-items: flex-start; }
+            .chart { height: 260px; }
+            .metric-pair { justify-content: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div>
+            <h1>门店级库存预测数据看板</h1>
+            <div class="subtitle">140门店 · 5000商品 · 2年日销售库存数据 · Transformer训练底座</div>
+        </div>
+        <nav class="nav-actions">
+            <a href="/forecast">聚合预测看板</a>
+            <a href="/">返回咨询助手</a>
+        </nav>
+    </header>
+
+    <main class="page">
+        <section class="status-strip">
+            <div>
+                <div class="status-title">门店-SKU数据底座</div>
+                <div class="status-text" id="statusText">正在加载数据资产...</div>
+            </div>
+            <div class="stage-pill" id="stagePill">数据加载中</div>
+        </section>
+
+        <section class="kpi-grid">
+            <div class="kpi"><div class="label">门店数</div><div class="value" id="kpiStores">-</div><div class="hint">store_id</div></div>
+            <div class="kpi"><div class="label">商品数</div><div class="value" id="kpiSkus">-</div><div class="hint">sku_id</div></div>
+            <div class="kpi"><div class="label">等价明细行</div><div class="value" id="kpiRows">-</div><div class="hint">门店 × 商品 × 日期</div></div>
+            <div class="kpi"><div class="label">有效门店-SKU</div><div class="value" id="kpiPairs">-</div><div class="hint">实际经营组合</div></div>
+            <div class="kpi"><div class="label">总销量</div><div class="value" id="kpiSales">-</div><div class="hint">2年累计盒/件</div></div>
+            <div class="kpi warn"><div class="label">缺货率</div><div class="value" id="kpiStockout">-</div><div class="hint">有效经营点口径</div></div>
+        </section>
+
+        <section class="compare-row" id="modelCompare" style="display:none">
+            <div class="compare-card" id="baselineCard">
+                <div class="compare-label">门店级基线模型</div>
+                <div class="compare-value" id="baselineWmape">-</div>
+                <div class="compare-hint">SeasonalNaive / MA / DateRidge 选优</div>
+            </div>
+            <div class="compare-vs">VS</div>
+            <div class="compare-card" id="transformerCard">
+                <div class="compare-label">Store-SKU Transformer</div>
+                <div class="compare-value" id="transformerWmape">-</div>
+                <div class="compare-hint" id="transformerHint">门店/SKU/品类 embedding</div>
+            </div>
+        </section>
+
+        <section class="kpi-grid">
+            <div class="kpi"><div class="label">基线整体WMAPE</div><div class="value" id="kpiWmape">-</div><div class="hint">按销量加权，更适合补货</div></div>
+            <div class="kpi"><div class="label">平均MAPE</div><div class="value" id="kpiMape">-</div><div class="hint">门店-SKU平均</div></div>
+            <div class="kpi"><div class="label">中位MAPE</div><div class="value" id="kpiMedianMape">-</div><div class="hint">典型组合误差</div></div>
+            <div class="kpi warn"><div class="label">P90 MAPE</div><div class="value" id="kpiP90Mape">-</div><div class="hint">长尾组合误差</div></div>
+            <div class="kpi"><div class="label">预测周期</div><div class="value" id="kpiHorizon">-</div><div class="hint">未来销量预测</div></div>
+            <div class="kpi warn"><div class="label">Transformer</div><div class="value" id="kpiTf">待训</div><div class="hint">下一阶段对比</div></div>
+        </section>
+
+        <section class="grid-2">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>近180天总销量趋势</h2>
+                    <span class="panel-note">全门店全商品汇总</span>
+                </div>
+                <div class="chart" id="dailyChart"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>品类销量结构</h2>
+                    <span class="panel-note">按商品主数据归类</span>
+                </div>
+                <div class="chart" id="categoryChart"></div>
+            </div>
+        </section>
+
+        <section class="grid-3">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>门店等级分布</h2>
+                    <span class="panel-note">A/B/C/D</span>
+                </div>
+                <div class="chart small" id="gradeChart"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>城市门店分布</h2>
+                    <span class="panel-note">Top城市</span>
+                </div>
+                <div class="chart small" id="cityChart"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>基线模型分布</h2>
+                    <span class="panel-note">验证集选型结果</span>
+                </div>
+                <div class="chart small" id="modelChart"></div>
+            </div>
+        </section>
+
+        <section class="grid-2">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>品类预测误差</h2>
+                    <span class="panel-note">平均 MAPE / WMAPE</span>
+                </div>
+                <div class="chart small" id="categoryErrorChart"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Transformer训练曲线</h2>
+                    <span class="panel-note">验证集 WMAPE / MAPE</span>
+                </div>
+                <div class="chart small" id="trainChart"></div>
+            </div>
+        </section>
+
+        <section class="work-grid">
+            <aside class="panel">
+                <div class="panel-head">
+                    <h2>门店与商品筛选</h2>
+                </div>
+                <div class="filters">
+                    <label>门店搜索
+                        <input id="storeSearch" placeholder="输入门店名、城市或STORE编号">
+                    </label>
+                    <label>门店等级
+                        <select id="storeGrade">
+                            <option value="">全部等级</option>
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D">D</option>
+                        </select>
+                    </label>
+                    <label>门店排序
+                        <select id="storeSort">
+                            <option value="sales">按销量</option>
+                            <option value="forecast">按预测30天</option>
+                            <option value="recommended">按建议库存</option>
+                            <option value="mape">按MAPE</option>
+                            <option value="stockout">按缺货点</option>
+                            <option value="name">按编号</option>
+                        </select>
+                    </label>
+                    <label>商品搜索
+                        <input id="productSearch" placeholder="输入药品名、通用名、SKU或厂家">
+                    </label>
+                    <label>商品品类
+                        <select id="productCategory"><option value="">全部品类</option></select>
+                    </label>
+                    <label>商品排序
+                        <select id="productSort">
+                            <option value="sales">按销量</option>
+                            <option value="forecast">按预测30天</option>
+                            <option value="recommended">按建议库存</option>
+                            <option value="mape">按MAPE</option>
+                            <option value="stockout">按缺货点</option>
+                            <option value="price">按价格</option>
+                            <option value="name">按名称</option>
+                        </select>
+                    </label>
+                    <div class="button-row">
+                        <button id="applyBtn">刷新列表</button>
+                        <button class="secondary" id="resetBtn">重置</button>
+                    </div>
+                </div>
+            </aside>
+
+            <section class="panel">
+                <div class="panel-head">
+                    <h2>门店-SKU曲线</h2>
+                    <span class="panel-note">销售、库存、入库、缺货</span>
+                </div>
+                <div class="series-head">
+                    <div>
+                        <div class="series-title" id="seriesTitle">请选择门店和商品</div>
+                        <div class="series-sub" id="seriesSub">默认加载销量最高门店与销量最高商品的最近120天曲线</div>
+                    </div>
+                    <div class="metric-pair">
+                        <div class="mini-stat"><div class="n" id="seriesSales">-</div><div class="t">近120天销量</div></div>
+                        <div class="mini-stat"><div class="n" id="seriesStockout">-</div><div class="t">缺货天数</div></div>
+                        <div class="mini-stat"><div class="n" id="seriesForecast">-</div><div class="t">预测30天</div></div>
+                        <div class="mini-stat"><div class="n" id="seriesMape">-</div><div class="t">回测MAPE</div></div>
+                    </div>
+                </div>
+                <div class="chart" id="seriesChart"></div>
+            </section>
+        </section>
+
+        <section class="grid-2">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>门店列表</h2>
+                    <span class="panel-note" id="storeCount">-</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>门店</th><th>城市</th><th>等级</th><th>销量</th><th>预测30天</th><th>MAPE</th><th>建议库存</th></tr></thead>
+                        <tbody id="storeTable"><tr><td colspan="7" class="empty">加载中...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>商品列表</h2>
+                    <span class="panel-note" id="productCount">-</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>商品</th><th>品类</th><th>监管</th><th>销量</th><th>预测30天</th><th>MAPE</th><th>建议库存</th></tr></thead>
+                        <tbody id="productTable"><tr><td colspan="7" class="empty">加载中...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const charts = {};
+        let selectedStore = 'STORE001';
+        let selectedSku = 'SKU00001';
+        let overviewData = null;
+
+        const fmt = (n) => Number(n || 0).toLocaleString('zh-CN');
+        const short = (n) => {
+            n = Number(n || 0);
+            if (n >= 100000000) return (n / 100000000).toFixed(n >= 1000000000 ? 1 : 2) + '亿';
+            if (n >= 10000) return (n / 10000).toFixed(n >= 1000000 ? 1 : 0) + '万';
+            return fmt(n);
+        };
+        const pct = (v) => (Number(v || 0) * 100).toFixed(2) + '%';
+
+        function initChart(id) {
+            if (charts[id]) return charts[id];
+            charts[id] = echarts.init(document.getElementById(id));
+            return charts[id];
+        }
+
+        function resizeCharts() {
+            Object.values(charts).forEach(c => c && c.resize());
+        }
+        window.addEventListener('resize', resizeCharts);
+
+        async function fetchJson(url) {
+            const resp = await fetch(url);
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || '请求失败');
+            return data;
+        }
+
+        function renderOverview(o) {
+            document.getElementById('statusText').textContent =
+                `${o.date_range[0]} 至 ${o.date_range[1]}，样本长表 ${fmt(o.sample_rows)} 行，张量文件 ${o.tensor_size_gb}GB`;
+            document.getElementById('stagePill').textContent = o.model_status.current_stage;
+            document.getElementById('kpiStores').textContent = fmt(o.stores);
+            document.getElementById('kpiSkus').textContent = fmt(o.skus);
+            document.getElementById('kpiRows').textContent = short(o.equivalent_long_rows);
+            document.getElementById('kpiPairs').textContent = short(o.active_store_sku_pairs);
+            document.getElementById('kpiSales').textContent = short(o.total_sales_qty);
+            document.getElementById('kpiStockout').textContent = pct(o.stockout_rate);
+            const bm = o.baseline_metrics;
+            const tm = o.transformer_metrics;
+            document.getElementById('kpiWmape').textContent = bm ? bm.overall_wmape + '%' : '-';
+            document.getElementById('kpiMape').textContent = bm ? bm.avg_pair_mape + '%' : '-';
+            document.getElementById('kpiMedianMape').textContent = bm ? bm.median_pair_mape + '%' : '-';
+            document.getElementById('kpiP90Mape').textContent = bm ? bm.p90_pair_mape + '%' : '-';
+            document.getElementById('kpiHorizon').textContent = bm ? bm.forecast_horizon_days + '天' : '-';
+            document.getElementById('kpiTf').textContent = tm ? tm.overall_wmape + '%' : '待训';
+            if (bm && tm) {
+                document.getElementById('modelCompare').style.display = 'grid';
+                document.getElementById('baselineWmape').textContent = bm.overall_wmape + '%';
+                document.getElementById('transformerWmape').textContent = tm.overall_wmape + '%';
+                document.getElementById('transformerHint').textContent =
+                    `${tm.model.d_model}维 · ${tm.model.layers}层 · 评估${fmt(tm.eval_pairs)}组 · 相对基线 ${tm.delta_vs_baseline.overall_wmape_points}点`;
+                document.getElementById('baselineCard').classList.toggle('winner', tm.winner !== 'transformer');
+                document.getElementById('transformerCard').classList.toggle('winner', tm.winner === 'transformer');
+            }
+
+            const categories = o.category_sales.map(x => x.category);
+            initChart('categoryChart').setOption({
+                tooltip: { trigger: 'item', formatter: p => `${p.name}<br/>销量 ${fmt(p.value)}` },
+                series: [{
+                    type: 'pie',
+                    radius: ['45%', '72%'],
+                    center: ['50%', '52%'],
+                    data: o.category_sales.map(x => ({ name: x.category, value: x.total_sales_qty })),
+                    label: { formatter: '{b}\n{d}%', fontSize: 11 }
+                }]
+            });
+
+            initChart('dailyChart').setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: 48, right: 18, top: 24, bottom: 40 },
+                xAxis: { type: 'category', data: o.daily_sales.map(x => x.date), axisLabel: { fontSize: 11 } },
+                yAxis: { type: 'value', axisLabel: { formatter: v => short(v) } },
+                series: [{
+                    name: '总销量',
+                    type: 'line',
+                    smooth: true,
+                    symbol: 'none',
+                    areaStyle: { opacity: 0.12 },
+                    lineStyle: { width: 2, color: '#0f7b64' },
+                    itemStyle: { color: '#0f7b64' },
+                    data: o.daily_sales.map(x => x.total_sales_qty)
+                }]
+            });
+
+            const gradeItems = Object.entries(o.grade_counts).sort();
+            initChart('gradeChart').setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: 36, right: 14, top: 18, bottom: 30 },
+                xAxis: { type: 'category', data: gradeItems.map(x => x[0]) },
+                yAxis: { type: 'value', minInterval: 1 },
+                series: [{ type: 'bar', data: gradeItems.map(x => x[1]), itemStyle: { color: '#0f7b64' }, barMaxWidth: 34 }]
+            });
+
+            const cityItems = Object.entries(o.city_counts).sort((a,b) => b[1] - a[1]);
+            initChart('cityChart').setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: 56, right: 14, top: 18, bottom: 30 },
+                xAxis: { type: 'value', minInterval: 1 },
+                yAxis: { type: 'category', data: cityItems.map(x => x[0]).reverse(), axisLabel: { fontSize: 11 } },
+                series: [{ type: 'bar', data: cityItems.map(x => x[1]).reverse(), itemStyle: { color: '#438777' }, barMaxWidth: 18 }]
+            });
+
+            const modelItems = bm ? bm.model_distribution.slice().sort((a,b) => b.count - a.count) : [];
+            initChart('modelChart').setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: ['42%', '70%'],
+                    data: modelItems.map(x => ({ name: x.model, value: x.count })),
+                    label: { formatter: '{b}\n{d}%', fontSize: 11 }
+                }]
+            });
+
+            const catErr = o.category_baseline || [];
+            initChart('categoryErrorChart').setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { top: 0, data: ['MAPE', 'WMAPE'] },
+                grid: { left: 54, right: 20, top: 42, bottom: 70 },
+                xAxis: { type: 'category', data: catErr.map(x => x.category), axisLabel: { rotate: 25, fontSize: 11 } },
+                yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+                series: [
+                    { name: 'MAPE', type: 'bar', data: catErr.map(x => Number(x.avg_test_mape || 0)), itemStyle: { color: '#0f7b64' }, barMaxWidth: 20 },
+                    { name: 'WMAPE', type: 'bar', data: catErr.map(x => Number(x.avg_test_wmape || 0)), itemStyle: { color: '#c48c3b' }, barMaxWidth: 20 }
+                ]
+            });
+
+            const hist = tm ? tm.history : [];
+            initChart('trainChart').setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { top: 0, data: ['MAPE', 'WMAPE'] },
+                grid: { left: 48, right: 18, top: 42, bottom: 36 },
+                xAxis: { type: 'category', data: hist.map(x => 'E' + x.epoch) },
+                yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+                series: [
+                    { name: 'MAPE', type: 'line', smooth: true, data: hist.map(x => x.val.avg_pair_mape), itemStyle: { color: '#0f7b64' }, lineStyle: { width: 3 } },
+                    { name: 'WMAPE', type: 'line', smooth: true, data: hist.map(x => x.val.overall_wmape), itemStyle: { color: '#c48c3b' }, lineStyle: { width: 3 } }
+                ]
+            });
+
+            const catSelect = document.getElementById('productCategory');
+            catSelect.innerHTML = '<option value="">全部品类</option>' + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            if (o.top_stores[0]) selectedStore = o.top_stores[0].store_id;
+            if (o.top_skus[0]) selectedSku = o.top_skus[0].sku_id;
+        }
+
+        async function loadStores() {
+            const params = new URLSearchParams({
+                search: document.getElementById('storeSearch').value,
+                grade: document.getElementById('storeGrade').value,
+                sort: document.getElementById('storeSort').value,
+                per_page: '30'
+            });
+            const data = await fetchJson('/api/store_forecast/stores?' + params.toString());
+            document.getElementById('storeCount').textContent = `${fmt(data.total)} 家`;
+            const tbody = document.getElementById('storeTable');
+            if (!data.stores.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty">没有匹配门店</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.stores.map(s => `
+                <tr data-id="${s.store_id}" class="${s.store_id === selectedStore ? 'selected' : ''}">
+                    <td><b>${s.store_name}</b><br><span class="tag">${s.store_id}</span></td>
+                    <td>${s.city}<br><span class="panel-note">${s.business_district}</span></td>
+                    <td><span class="tag">${s.store_grade}</span></td>
+                    <td><b>${short(s.total_sales_qty)}</b></td>
+                    <td><b>${short(s.forecast_30d)}</b></td>
+                    <td>${s.avg_test_mape ? Number(s.avg_test_mape).toFixed(1) + '%' : '-'}</td>
+                    <td>${short(s.recommended_stock)}</td>
+                </tr>
+            `).join('');
+            tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+                tr.addEventListener('click', () => {
+                    selectedStore = tr.dataset.id;
+                    loadStores();
+                    loadSeries();
+                });
+            });
+        }
+
+        async function loadProducts() {
+            const params = new URLSearchParams({
+                search: document.getElementById('productSearch').value,
+                category: document.getElementById('productCategory').value,
+                sort: document.getElementById('productSort').value,
+                per_page: '30'
+            });
+            const data = await fetchJson('/api/store_forecast/products?' + params.toString());
+            document.getElementById('productCount').textContent = `${fmt(data.total)} 个`;
+            const tbody = document.getElementById('productTable');
+            if (!data.products.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty">没有匹配商品</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.products.map(p => `
+                <tr data-id="${p.sku_id}" class="${p.sku_id === selectedSku ? 'selected' : ''}">
+                    <td><b>${p.display_name}</b><br><span class="tag">${p.sku_id}</span></td>
+                    <td>${p.category}<br><span class="panel-note">${p.sub_category}</span></td>
+                    <td><span class="tag rx">${p.rx_type}</span></td>
+                    <td><b>${short(p.total_sales_qty)}</b></td>
+                    <td><b>${short(p.forecast_30d)}</b></td>
+                    <td>${p.avg_test_mape ? Number(p.avg_test_mape).toFixed(1) + '%' : '-'}</td>
+                    <td>${short(p.recommended_stock)}</td>
+                </tr>
+            `).join('');
+            tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+                tr.addEventListener('click', () => {
+                    selectedSku = tr.dataset.id;
+                    loadProducts();
+                    loadSeries();
+                });
+            });
+        }
+
+        async function loadSeries() {
+            const params = new URLSearchParams({ store_id: selectedStore, sku_id: selectedSku, days: '120' });
+            const data = await fetchJson('/api/store_forecast/series?' + params.toString());
+            const s = data.series;
+            document.getElementById('seriesTitle').textContent = `${s.store.store_name} · ${s.product.display_name}`;
+            document.getElementById('seriesSub').textContent =
+                `${s.store.city}${s.store.district} · ${s.store.store_grade}级 · ${s.store.business_district} · ${s.product.category}/${s.product.sub_category}`;
+            document.getElementById('seriesSales').textContent = fmt(s.total_sales_qty);
+            document.getElementById('seriesStockout').textContent = fmt(s.stockout_days);
+            const baseline = s.baseline || null;
+            document.getElementById('seriesForecast').textContent = baseline ? fmt(baseline.forecast_30d) : '-';
+            document.getElementById('seriesMape').textContent = baseline ? baseline.test_mape + '%' : '-';
+            const xAxisDates = baseline ? s.dates.concat(baseline.future_dates) : s.dates;
+            const futureOffset = s.dates.length;
+            const salesLine = s.sales_qty.concat(baseline ? new Array(baseline.forecast_values.length).fill(null) : []);
+            const stockLine = s.stock_qty.concat(baseline ? new Array(baseline.forecast_values.length).fill(null) : []);
+            const inboundLine = s.inbound_qty.concat(baseline ? new Array(baseline.forecast_values.length).fill(null) : []);
+            const stockoutLine = s.is_stockout.concat(baseline ? new Array(baseline.forecast_values.length).fill(null) : []);
+            const forecastLine = baseline ? new Array(futureOffset).fill(null).concat(baseline.forecast_values) : [];
+
+            initChart('seriesChart').setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { top: 0, data: baseline ? ['销量', '库存', '入库', '缺货', '未来预测'] : ['销量', '库存', '入库', '缺货'] },
+                grid: { left: 48, right: 18, top: 42, bottom: 38 },
+                xAxis: { type: 'category', data: xAxisDates, axisLabel: { fontSize: 11 } },
+                yAxis: [
+                    { type: 'value', name: '数量', axisLabel: { formatter: v => short(v) } },
+                    { type: 'value', name: '缺货', min: 0, max: 1, interval: 1 }
+                ],
+                series: [
+                    { name: '销量', type: 'line', smooth: true, data: salesLine, itemStyle: { color: '#0f7b64' }, lineStyle: { width: 2 } },
+                    { name: '库存', type: 'line', smooth: false, data: stockLine, itemStyle: { color: '#477ca8' }, lineStyle: { width: 1.6 } },
+                    { name: '入库', type: 'bar', data: inboundLine, itemStyle: { color: '#c48c3b', opacity: 0.45 }, barMaxWidth: 12 },
+                    { name: '缺货', type: 'bar', yAxisIndex: 1, data: stockoutLine, itemStyle: { color: '#c94d3f' }, barMaxWidth: 8 },
+                    ...(baseline ? [{ name: '未来预测', type: 'line', smooth: true, data: forecastLine, itemStyle: { color: '#6f55a4' }, lineStyle: { width: 3, type: 'dashed' } }] : [])
+                ]
+            });
+        }
+
+        function bindEvents() {
+            document.getElementById('applyBtn').addEventListener('click', () => {
+                loadStores();
+                loadProducts();
+            });
+            document.getElementById('resetBtn').addEventListener('click', () => {
+                document.getElementById('storeSearch').value = '';
+                document.getElementById('storeGrade').value = '';
+                document.getElementById('storeSort').value = 'sales';
+                document.getElementById('productSearch').value = '';
+                document.getElementById('productCategory').value = '';
+                document.getElementById('productSort').value = 'sales';
+                loadStores();
+                loadProducts();
+            });
+            ['storeSearch', 'productSearch'].forEach(id => {
+                document.getElementById(id).addEventListener('input', () => {
+                    clearTimeout(window['timer_' + id]);
+                    window['timer_' + id] = setTimeout(() => {
+                        if (id === 'storeSearch') loadStores(); else loadProducts();
+                    }, 300);
+                });
+            });
+            ['storeGrade', 'storeSort'].forEach(id => document.getElementById(id).addEventListener('change', loadStores));
+            ['productCategory', 'productSort'].forEach(id => document.getElementById(id).addEventListener('change', loadProducts));
+        }
+
+        async function init() {
+            bindEvents();
+            try {
+                const data = await fetchJson('/api/store_forecast/overview');
+                overviewData = data.overview;
+                renderOverview(overviewData);
+                await Promise.all([loadStores(), loadProducts()]);
+                await loadSeries();
+                setTimeout(resizeCharts, 50);
+            } catch (err) {
+                document.getElementById('statusText').textContent = err.message;
+                document.getElementById('stagePill').textContent = '加载失败';
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

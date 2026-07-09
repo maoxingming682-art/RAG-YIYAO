@@ -1,0 +1,43 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Runtime logs and local caches
+logs/
+chroma_db/
+*.log
+
+# Large generated datasets, vectors, forecasts and model artifacts
+data/*
+!data/
+!data/README.md
+!data/drug_aliases.csv
+!data/rag_dialog_eval_cases.json
+lora_output/
+lora_output_7b/
+*.npy
+*.npz
+*.pt
+*.pth
+*.safetensors
+*.parquet
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

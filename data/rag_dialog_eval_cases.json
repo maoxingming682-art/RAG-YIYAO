@@ -1,0 +1,101 @@
+[
+  {
+    "id": "etodolac_followup_contra_dosage",
+    "description": "追问同时问禁忌和饭前饭后，必须继承上一轮依托度酸片主题",
+    "question": "有什么禁忌吗？饭后吃还是饭前吃？",
+    "history": [
+      {
+        "question": "依托度酸片的作用是什么？",
+        "answer": "依托度酸片用于缓解疼痛。"
+      }
+    ],
+    "expected_rewrite_contains": ["依托度酸片", "禁忌", "饭后"],
+    "expected_query_contains": ["依托度酸片 禁忌", "依托度酸片 用法"],
+    "expected_source_contains": ["依托度酸片"],
+    "expected_evidence_ok": true,
+    "min_similarity": 0.8
+  },
+  {
+    "id": "amoxicillin_gankang_compare",
+    "description": "比较型追问，必须继承阿莫西林并把感康扩展为复方氨酚烷胺胶囊",
+    "question": "和感康的作用相似吗？",
+    "history": [
+      {
+        "question": "阿莫西林胶囊怎么吃？",
+        "answer": "阿莫西林是抗感染相关药品。"
+      }
+    ],
+    "expected_rewrite_contains": ["阿莫西林胶囊", "感康"],
+    "expected_query_contains": ["复方氨酚烷胺胶囊"],
+    "expected_source_contains": ["复方氨酚烷胺"],
+    "expected_evidence_ok": true,
+    "min_similarity": 0.85
+  },
+  {
+    "id": "ibuprofen_child_followup",
+    "description": "小孩能不能吃这种省略主语追问，要继承布洛芬缓释胶囊主题",
+    "question": "小孩能吃吗？",
+    "history": [
+      {
+        "question": "布洛芬缓释胶囊有什么不良反应？",
+        "answer": "布洛芬可能有胃肠道不适等不良反应。"
+      }
+    ],
+    "expected_rewrite_contains": ["布洛芬缓释胶囊", "小孩"],
+    "expected_query_contains": ["布洛芬缓释胶囊 禁忌"],
+    "expected_source_contains": ["布洛芬"],
+    "expected_evidence_ok": true,
+    "min_similarity": 0.75
+  },
+  {
+    "id": "fenbid_brand_alias",
+    "description": "品牌名芬必得应扩展为布洛芬缓释胶囊",
+    "question": "芬必得有什么副作用？",
+    "history": [],
+    "expected_rewrite_contains": ["芬必得"],
+    "expected_query_contains": ["布洛芬缓释胶囊"],
+    "expected_source_contains": ["布洛芬"],
+    "expected_evidence_ok": true,
+    "min_similarity": 0.75
+  },
+  {
+    "id": "unknown_latin_drug_gap",
+    "description": "不存在的英文/编码药名不能被通用语义相似度误判为可回答",
+    "question": "一个完全不存在的药ABC怎么吃？",
+    "history": [],
+    "expected_rewrite_contains": ["ABC"],
+    "expected_evidence_ok": false
+  },
+  {
+    "id": "eye_dry_eye_drops_followup",
+    "description": "症状追问眼药水时，主题应继承眼睛干涩/干眼症，而不是电脑看久",
+    "question": "有哪些眼药水？",
+    "history": [
+      {
+        "question": "电脑看久了，眼睛很涩",
+        "answer": "长时间看电脑可能导致眼睛干涩，可以适当使用人工泪液、贝复舒眼液、萧莱威眼液。"
+      }
+    ],
+    "expected_rewrite_contains": ["眼睛干涩", "眼药水"],
+    "expected_query_contains": ["干眼症 眼药水"],
+    "expected_source_contains": ["干眼症的预防和治疗方法"],
+    "expected_evidence_ok": true,
+    "min_similarity": 0.9
+  },
+  {
+    "id": "typo_these_price_usage_followup",
+    "description": "错别字这写应纠正为这些，并把这些指向上一轮提到的眼药水列表",
+    "question": "这写都是多少钱有没有用量呢？",
+    "history": [
+      {
+        "question": "电脑看久了，眼睛很涩",
+        "answer": "可以考虑人工泪液、贝复舒眼液、萧莱威眼液来缓解眼干涩。"
+      }
+    ],
+    "expected_rewrite_contains": ["人工泪液", "贝复舒眼液", "萧莱威眼液", "多少钱", "用量"],
+    "expected_query_contains": ["人工泪液 用法"],
+    "expected_source_contains": ["干眼症的预防和治疗方法"],
+    "expected_evidence_ok": true,
+    "min_similarity": 1.0
+  }
+]
