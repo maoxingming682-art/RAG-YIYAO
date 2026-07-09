@@ -48,6 +48,20 @@ RAW_APIS = [
         "glm-4.7-flash",
         3,
     ),
+    _env_api(
+        4,
+        "runanytime-glm-5.2",
+        "https://runanytime.hxi.me/v1",
+        "z-ai/glm-5.2",
+        1,
+    ),
+    _env_api(
+        5,
+        "runanytime-mimo-v2.5-pro",
+        "https://runanytime.hxi.me/v1",
+        "xiaomi/mimo-v2.5-pro",
+        2,
+    ),
 ]
 
 APIS = [api for api in RAW_APIS if api.get("api_key")]
