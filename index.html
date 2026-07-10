@@ -596,7 +596,7 @@
                             if (json.result) latestMeta = json.result;
                             if (!answerText && latestMeta.answer) answerText = latestMeta.answer;
                             renderAssistant();
-                            chatHistory.push({ question, answer: latestMeta.answer || answerText });
+                            chatHistory.push({ question: latestMeta.question || question, answer: latestMeta.answer || answerText });
                             if (chatHistory.length > 5) chatHistory.shift();
                             updateContext();
                             statusBar.textContent = (latestMeta.issues && latestMeta.issues.length) ? '已标记复核' : '处理完成';
@@ -617,7 +617,7 @@
                     latestMeta = fallback || latestMeta;
                     answerText = latestMeta.answer || answerText || '抱歉，这次没有拿到有效回答，请稍后再试。';
                     renderAssistant();
-                    chatHistory.push({ question, answer: answerText });
+                    chatHistory.push({ question: latestMeta.question || question, answer: answerText });
                     if (chatHistory.length > 5) chatHistory.shift();
                     updateContext();
                     statusBar.textContent = '已用普通模式完成';

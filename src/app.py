@@ -600,6 +600,103 @@ def _clean_history(history, limit=5):
     return cleaned
 
 
+_CHOICE_NUMERALS = {
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _choice_number(question):
+    q = str(question or "").strip()
+    q = q.replace("．", ".").replace("。", ".")
+    digit_match = re.fullmatch(
+        r"(?:选|选择|第)?\s*([1-9])\s*(?:个|项|条|号|种|\.|、|）|\))?\s*(?:吧|呢)?",
+        q,
+    )
+    if digit_match:
+        return int(digit_match.group(1))
+
+    cn_match = re.fullmatch(
+        r"(?:选|选择|第)?\s*([一二两三四五六七八九])\s*(?:个|项|条|号|种)?\s*(?:吧|呢)?",
+        q,
+    )
+    if cn_match:
+        return _CHOICE_NUMERALS.get(cn_match.group(1))
+    return None
+
+
+def _last_history_answer(history):
+    if not isinstance(history, list):
+        return ""
+    for item in reversed(history):
+        if not isinstance(item, dict):
+            continue
+        answer = str(item.get("answer") or "").strip()
+        if answer:
+            return answer
+    return ""
+
+
+def _extract_numbered_options(text, max_options=9):
+    raw = str(text or "")
+    if not raw.strip():
+        return {}
+
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    raw = re.sub(r"<br\s*/?>", "\n", raw, flags=re.I)
+    # Handle compact text like "1. A 2. B 3. C" by putting choices on separate lines.
+    raw = re.sub(r"(?<![\d.])\s+(?=[1-9][\.\)）、．]\s+)", "\n", raw)
+
+    pattern = re.compile(
+        r"(?:^|\n)\s*(?:[-*]\s*)?(?:\*\*)?([1-9])[\.\)）、．]\s*(.+?)(?=(?:\n\s*(?:[-*]\s*)?(?:\*\*)?[1-9][\.\)）、．]\s+)|\Z)",
+        re.S,
+    )
+    options = {}
+    for num, option in pattern.findall(raw):
+        option = re.split(r"\n\s*\n|---|【温馨提示】|温馨提示", option, maxsplit=1)[0]
+        option = re.sub(r"\*\*", "", option)
+        option = re.sub(r"\s+", " ", option).strip()
+        option = option.strip(" \t-—:：;；，,。")
+        if not option:
+            continue
+        options.setdefault(int(num), option[:160])
+        if len(options) >= max_options:
+            break
+    return options
+
+
+def _resolve_numeric_choice(question, history):
+    """Resolve replies like "2" to the previous assistant numbered option."""
+    number = _choice_number(question)
+    if not number:
+        return question, None
+
+    options = _extract_numbered_options(_last_history_answer(history))
+    selected = options.get(number)
+    if not selected:
+        return question, None
+
+    context = _dialog_context(history)
+    subject = context.get("last_subject", "")
+    resolved = selected
+    if subject and not _contains_subject(selected, subject):
+        resolved = f"关于{subject}，{selected}"
+
+    return resolved, {
+        "number": number,
+        "option": selected,
+        "resolved": resolved,
+    }
+
+
 def load_drug_aliases():
     """加载商品名/俗称 -> 通用名映射。CSV优先，内置表兜底。"""
     global _drug_aliases
@@ -1079,6 +1176,7 @@ def process_question(question, history=None):
     history: [{"question":..,"answer":..}, ...] 多轮上下文
     """
     question, normalize_notes = normalize_user_question(question)
+    question, choice_info = _resolve_numeric_choice(question, history)
     context = _dialog_context(history)
     result = {
         "question": question,
@@ -1095,6 +1193,8 @@ def process_question(question, history=None):
         result["steps"].append(f"已脱敏{mask_count}处隐私信息")
     if normalize_notes:
         result["steps"].append(f"输入纠错：{'；'.join(normalize_notes)}")
+    if choice_info:
+        result["steps"].append(f"选项消解：{choice_info['number']} -> {choice_info['option'][:30]}")
 
     # 2. 分诊——规则引擎优先，简单问题不调LLM
     triage = rule_based_triage(masked)
@@ -1365,8 +1465,9 @@ def api_ask_stream():
     """
     data = request.get_json(force=True)
     question = (data.get("question") or "").strip()
-    question, normalize_notes = normalize_user_question(question)
     history = data.get("history", []) or []
+    question, normalize_notes = normalize_user_question(question)
+    question, choice_info = _resolve_numeric_choice(question, history)
     if not question:
         return jsonify({"success": False, "error": "问题不能为空"}), 400
 
@@ -1394,6 +1495,8 @@ def api_ask_stream():
                 result["steps"].append(f"已脱敏{mask_count}处隐私信息")
             if normalize_notes:
                 result["steps"].append(f"输入纠错：{'；'.join(normalize_notes)}")
+            if choice_info:
+                result["steps"].append(f"选项消解：{choice_info['number']} -> {choice_info['option'][:30]}")
 
             # 分诊
             triage = rule_based_triage(masked)
