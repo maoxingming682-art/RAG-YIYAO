@@ -158,6 +158,36 @@ def _extract_query_keywords(question):
     return list(keywords)
 
 
+def _exact_query_terms(question):
+    """High-precision phrases used to prefer exact KB updates over broad keyword hits."""
+    terms = []
+    cleaned = re.sub(r"[^\u4e00-\u9fa5A-Za-z0-9]+", " ", question)
+    intent_words = [
+        "怎么吃", "怎么服用", "如何服用", "有什么", "有没有", "怎么办",
+        "用法用量", "用法", "用量", "剂量", "副作用", "不良反应",
+        "禁忌", "作用", "功效", "多少钱", "价格", "吗", "呢", "的",
+    ]
+    for segment in cleaned.split():
+        if len(segment) >= 4:
+            terms.append(segment)
+        reduced = segment
+        for word in intent_words:
+            reduced = reduced.replace(word, "")
+        if len(reduced) >= 3:
+            terms.append(reduced)
+    for alias_target in _expand_aliases(question):
+        if alias_target not in terms:
+            terms.append(alias_target)
+
+    seen = set()
+    unique_terms = []
+    for term in terms:
+        if term and term not in seen:
+            seen.add(term)
+            unique_terms.append(term)
+    return unique_terms[:8]
+
+
 def _term_variants(term):
     if not term:
         return []
@@ -204,16 +234,22 @@ def retrieve(question, top_k=TOP_K):
 
     # 2. 关键词召回：提取药品名关键词，在知识库中匹配，命中的补入候选池
     keywords = _extract_query_keywords(question)
-    if keywords:
-        kw_idx_set = set()
+    exact_terms = _exact_query_terms(question)
+    if keywords or exact_terms:
+        kw_matches = []
         for i, chunk in enumerate(_chunks):
             text = chunk.get("text", "")
             source = chunk.get("source", "")
             combined = text + " " + source
-            if any(kw in combined for kw in keywords):
-                kw_idx_set.add(i)
-        # 关键词命中的补入候选池（最多再补20条，避免候选池过大）
-        new_kw = [i for i in kw_idx_set if i not in candidate_set][:20]
+            hits = sum(1 for kw in keywords if kw in combined)
+            exact_hits = sum(1 for term in exact_terms if term in combined)
+            source_exact_hits = sum(1 for term in exact_terms if term in source)
+            if hits or exact_hits or source_exact_hits:
+                kw_matches.append((source_exact_hits, exact_hits, hits, float(sims[i]), i))
+        # Prefer exact source/title matches first. This keeps reviewed KB updates from
+        # being crowded out by many broad hits for common drug names.
+        kw_matches.sort(key=lambda x: (x[0], x[1], x[2], x[3]), reverse=True)
+        new_kw = [i for *_scores, i in kw_matches if i not in candidate_set][:80]
         candidate_set.update(new_kw)
 
     # 3. 融合排序：向量相似度 + 关键词加分
@@ -229,6 +265,14 @@ def retrieve(question, top_k=TOP_K):
             boost = min(hits * 0.08, 0.20)
         else:
             boost = 0.0
+        if exact_terms:
+            text = _chunks[i].get("text", "")
+            source = _chunks[i].get("source", "")
+            combined = text + " " + source
+            exact_hits = sum(1 for term in exact_terms if term in combined)
+            source_exact_hits = sum(1 for term in exact_terms if term in source)
+            boost += min(exact_hits * 0.20, 0.55)
+            boost += min(source_exact_hits * 0.18, 0.35)
         final_sim = vec_sim + boost
         scored.append((final_sim, i))
     scored.sort(key=lambda x: -x[0])
