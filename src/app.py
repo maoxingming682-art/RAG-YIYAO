@@ -673,28 +673,98 @@ def _extract_numbered_options(text, max_options=9):
     return options
 
 
-def _resolve_numeric_choice(question, history):
-    """Resolve replies like "2" to the previous assistant numbered option."""
+def _detect_numeric_choice(question, history):
+    """Detect replies like "2" and capture the selected previous option."""
     number = _choice_number(question)
     if not number:
-        return question, None
+        return None
 
     options = _extract_numbered_options(_last_history_answer(history))
     selected = options.get(number)
     if not selected:
-        return question, None
+        return None
 
-    context = _dialog_context(history)
-    subject = context.get("last_subject", "")
-    resolved = selected
-    if subject and not _contains_subject(selected, subject):
-        resolved = f"关于{subject}，{selected}"
-
-    return resolved, {
+    return {
         "number": number,
         "option": selected,
-        "resolved": resolved,
+        "options": options,
     }
+
+
+def _json_from_llm(text):
+    raw = str(text or "").strip()
+    match = re.search(r"\{.*\}", raw, flags=re.S)
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group(0))
+    except Exception:
+        return {}
+
+
+def _fallback_numeric_choice_completion(choice_info, context):
+    selected = choice_info.get("option", "")
+    subject = context.get("last_subject", "")
+    needs_more_info_markers = [
+        "药品完整名称", "规格", "厂家", "补充", "年龄", "持续时间",
+        "想问的是", "用法用量", "不良反应", "禁忌", "能不能",
+    ]
+    if any(marker in selected for marker in needs_more_info_markers):
+        return {
+            "action": "clarify",
+            "reply": f"可以。您选的是第{choice_info['number']}项：{selected}。请再补充具体药品名或您最想确认的一点，我再帮您查。",
+        }
+
+    rewritten = selected
+    if subject and not _contains_subject(selected, subject):
+        rewritten = f"关于{subject}，{selected}"
+    return {"action": "rewrite", "question": rewritten}
+
+
+def complete_numeric_choice(question, history, context, choice_info):
+    """Let the rewrite model decide what a numeric option reply means."""
+    options_text = "\n".join(
+        f"{num}. {text}" for num, text in sorted(choice_info.get("options", {}).items())
+    )
+    ctx = _build_history_context_text(context)
+    prompt = f"""你是多轮问句补全助手。用户这轮只回复了一个选项编号，请结合上一轮上下文和选项内容判断它的真实含义。
+
+【对话上下文】
+{ctx}
+
+【上一轮编号选项】
+{options_text}
+
+【用户本轮输入】
+{question}
+
+【用户选择】
+第{choice_info['number']}项：{choice_info['option']}
+
+请只输出 JSON，不要输出解释。JSON 格式二选一：
+1. 如果已经能补全成一个可检索、可回答的完整问题：
+{{"action":"rewrite","question":"补全后的完整问题"}}
+2. 如果用户只是选择了一个澄清方向，但仍缺少关键对象（例如具体药品名、症状细节、年龄、持续时间等）：
+{{"action":"clarify","reply":"一句自然的追问，说明还需要用户补什么"}}
+
+要求：
+- 不要机械拼接选项文字，要理解用户真正想继续哪条路。
+- 医药问题里，如果缺少具体药品名或症状细节，优先 action=clarify。
+- 不要编造知识库没有的信息。"""
+
+    try:
+        from llm_pool import chat
+        raw = chat([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=180)
+        parsed = _json_from_llm(raw)
+        action = parsed.get("action")
+        if action == "rewrite" and parsed.get("question"):
+            return {"action": "rewrite", "question": str(parsed["question"]).strip()}
+        if action == "clarify" and parsed.get("reply"):
+            return {"action": "clarify", "reply": str(parsed["reply"]).strip()}
+    except Exception as e:
+        print(f"[choice] 模型补全失败，使用兜底: {e}", flush=True)
+
+    return _fallback_numeric_choice_completion(choice_info, context)
 
 
 def load_drug_aliases():
@@ -1176,7 +1246,7 @@ def process_question(question, history=None):
     history: [{"question":..,"answer":..}, ...] 多轮上下文
     """
     question, normalize_notes = normalize_user_question(question)
-    question, choice_info = _resolve_numeric_choice(question, history)
+    choice_info = _detect_numeric_choice(question, history)
     context = _dialog_context(history)
     result = {
         "question": question,
@@ -1187,14 +1257,29 @@ def process_question(question, history=None):
         "issues": [],
     }
 
+    if choice_info:
+        result["steps"].append(f"选项选择：{choice_info['number']} -> {choice_info['option'][:30]}")
+        choice_result = complete_numeric_choice(question, history, context, choice_info)
+        if choice_result.get("action") == "clarify":
+            answer = choice_result.get("reply") or "可以，请再补充一点具体信息，我再帮您查。"
+            result["answer"] = answer
+            result["triage"] = {"level": "澄清", "recommend_drugs": False, "needs_doctor": False}
+            result["steps"].append("选项补全：需要继续澄清")
+            result["question"] = f"选择第{choice_info['number']}项：{choice_info['option']}"
+            audit_log(result["question"], answer, "澄清", [])
+            return result
+        rewritten = choice_result.get("question")
+        if rewritten and rewritten != question:
+            question = rewritten
+            result["question"] = rewritten
+            result["steps"].append(f"选项补全: {rewritten[:30]}")
+
     # 1. 脱敏
     masked, mask_count = desensitize(question)
     if mask_count > 0:
         result["steps"].append(f"已脱敏{mask_count}处隐私信息")
     if normalize_notes:
         result["steps"].append(f"输入纠错：{'；'.join(normalize_notes)}")
-    if choice_info:
-        result["steps"].append(f"选项消解：{choice_info['number']} -> {choice_info['option'][:30]}")
 
     # 2. 分诊——规则引擎优先，简单问题不调LLM
     triage = rule_based_triage(masked)
@@ -1241,7 +1326,7 @@ def process_question(question, history=None):
 
     # 2.4 无效输入拦截：单字符/纯数字/无意义输入
     cleaned = re.sub(r'[\s\W_]+', '', masked)
-    if len(cleaned) < 2 or cleaned.isdigit() or len(masked.strip()) < 2:
+    if not choice_info and (len(cleaned) < 2 or cleaned.isdigit() or len(masked.strip()) < 2):
         answer = "您的问题似乎不太完整，能再详细描述一下吗？比如您的症状或想了解的药品名称。"
         result["answer"] = answer
         result["steps"].append("无效输入：过短/纯数字")
@@ -1299,12 +1384,13 @@ def process_question(question, history=None):
 
     # 3. Query Rewrite：多轮追问改写成完整问题（解决"那用什么药"指代不明）
     retrieve_question = masked
-    if history:
+    if history and not choice_info:
         rewritten, is_rw = rewrite_query(masked, history)
         if is_rw:
             result["steps"].append(f"追问改写: {rewritten[:30]}")
             retrieve_question = rewritten
             masked = rewritten  # 后续生成也用改写后的完整问题
+            result["question"] = rewritten
 
     # 4. 检索
     try:
@@ -1467,7 +1553,7 @@ def api_ask_stream():
     question = (data.get("question") or "").strip()
     history = data.get("history", []) or []
     question, normalize_notes = normalize_user_question(question)
-    question, choice_info = _resolve_numeric_choice(question, history)
+    choice_info = _detect_numeric_choice(question, history)
     if not question:
         return jsonify({"success": False, "error": "问题不能为空"}), 400
 
@@ -1485,18 +1571,37 @@ def api_ask_stream():
     def generate():
         try:
             # === 前置阶段：复用 process_question 逻辑到生成前 ===
+            current_question = question
             result = {
-                "question": question, "answer": "", "retrieved": [],
+                "question": current_question, "answer": "", "retrieved": [],
                 "triage": None, "steps": [], "issues": [],
             }
             context = _dialog_context(history)
-            masked, mask_count = desensitize(question)
+
+            if choice_info:
+                result["steps"].append(f"选项选择：{choice_info['number']} -> {choice_info['option'][:30]}")
+                choice_result = complete_numeric_choice(current_question, history, context, choice_info)
+                if choice_result.get("action") == "clarify":
+                    answer = choice_result.get("reply") or "可以，请再补充一点具体信息，我再帮您查。"
+                    result["answer"] = answer
+                    result["triage"] = {"level": "澄清", "recommend_drugs": False, "needs_doctor": False}
+                    result["steps"].append("选项补全：需要继续澄清")
+                    result["question"] = f"选择第{choice_info['number']}项：{choice_info['option']}"
+                    yield sse({"type": "meta", "result": result})
+                    yield sse({"type": "done", "result": result})
+                    audit_log(result["question"], answer, "澄清", [])
+                    return
+                rewritten = choice_result.get("question")
+                if rewritten and rewritten != current_question:
+                    current_question = rewritten
+                    result["question"] = rewritten
+                    result["steps"].append(f"选项补全: {rewritten[:30]}")
+
+            masked, mask_count = desensitize(current_question)
             if mask_count > 0:
                 result["steps"].append(f"已脱敏{mask_count}处隐私信息")
             if normalize_notes:
                 result["steps"].append(f"输入纠错：{'；'.join(normalize_notes)}")
-            if choice_info:
-                result["steps"].append(f"选项消解：{choice_info['number']} -> {choice_info['option'][:30]}")
 
             # 分诊
             triage = rule_based_triage(masked)
@@ -1529,7 +1634,7 @@ def api_ask_stream():
 
             # 无效输入
             cleaned = re.sub(r'[\s\W_]+', '', masked)
-            if len(cleaned) < 2 or cleaned.isdigit() or len(masked.strip()) < 2:
+            if not choice_info and (len(cleaned) < 2 or cleaned.isdigit() or len(masked.strip()) < 2):
                 answer = "您的问题似乎不太完整，能再详细描述一下吗？比如您的症状或想了解的药品名称。"
                 result["answer"] = answer
                 result["steps"].append("无效输入：过短/纯数字")
@@ -1572,12 +1677,13 @@ def api_ask_stream():
 
             # Query Rewrite
             retrieve_question = masked
-            if history:
+            if history and not choice_info:
                 rewritten, is_rw = rewrite_query(masked, history)
                 if is_rw:
                     result["steps"].append(f"追问改写: {rewritten[:30]}")
                     retrieve_question = rewritten
                     masked = rewritten
+                    result["question"] = rewritten
 
             # 检索
             try:
