@@ -710,6 +710,14 @@ def _query_audit_logs(status=None, keyword=None, limit=200):
     return filtered, counts
 
 
+def _get_audit_log(log_id):
+    state = _load_audit_state()
+    for entry in _load_audit_entries():
+        if entry.get("id") == log_id:
+            return _hydrate_audit_entry(entry, state)
+    return None
+
+
 def _load_kb_updates():
     if not os.path.exists(KB_UPDATES_LOG):
         return []
@@ -751,6 +759,106 @@ def _update_audit_state(log_id, status=None, note=None, handled=None):
         state["items"][log_id] = current
         _save_audit_state(state)
         return current
+
+
+def generate_kb_draft(log_item, chat_fn=None):
+    """Generate a human-review draft for a possible KB update."""
+    if not log_item:
+        return {"can_draft": False, "reason": "日志不存在"}
+
+    question = _safe_text(log_item.get("question"), 300).strip()
+    if not question:
+        return {"can_draft": False, "reason": "问题为空，无法生成草稿"}
+
+    retrieved_text = "\n".join(
+        f"- {item.get('source', '')} 相似度:{item.get('similarity', '')}"
+        for item in (log_item.get("retrieved") or [])[:5]
+    ) or "无"
+    issues_text = "、".join(str(x) for x in (log_item.get("issues") or [])) or "无"
+    answer_preview = _safe_text(log_item.get("answer") or log_item.get("answer_preview"), 900).strip() or "无"
+    steps_text = "\n".join(str(x) for x in (log_item.get("steps") or [])[:8]) or "无"
+
+    prompt = f"""你是药学知识库编辑助手。你的任务是根据测试日志生成一版“待人工审核”的知识库草稿，不是直接给用户的最终医疗建议。
+
+【测试问题】
+{question}
+
+【原回答或回答摘要】
+{answer_preview}
+
+【问题标记】
+{issues_text}
+
+【检索命中】
+{retrieved_text}
+
+【处理步骤】
+{steps_text}
+
+请只输出 JSON，不要输出解释、Markdown 或代码块。JSON 格式：
+{{
+  "can_draft": true,
+  "title": "标准问题，尽量短，适合作为知识库标题",
+  "answer": "待审核标准答案，120-500字。必须谨慎、边界清楚，不要诊断，不要编造具体价格。涉及处方药或抗生素时要强调遵医嘱。",
+  "source": "AI草稿，需人工核验；建议核验来源：...",
+  "review_notes": "给审核人的一句话提醒"
+}}
+
+如果问题不适合作为知识库条目，例如寒暄、系统能力、纯价格、缺少具体药品或症状主体、明显虚构药品，请输出：
+{{
+  "can_draft": false,
+  "reason": "不建议生成草稿的原因",
+  "review_notes": "建议后台如何处理"
+}}
+
+要求：
+- 不要使用星号、粗体、标题符号等 Markdown。
+- 草稿必须写明需要人工核验来源，不要假装已经核验。
+- 药品用法用量、禁忌、不良反应等必须提示以说明书、医生或药师审核为准。
+- 若可以生成草稿，source 必须以“AI草稿，需人工核验；建议核验来源：”开头。"""
+
+    try:
+        if chat_fn is None:
+            from llm_pool import chat
+            chat_fn = chat
+        raw = chat_fn([{"role": "user", "content": prompt}], temperature=0.2, max_tokens=800)
+        parsed = _json_from_llm(raw)
+    except Exception as exc:
+        return {
+            "can_draft": False,
+            "reason": f"AI草稿生成失败: {str(exc)[:160]}",
+            "review_notes": "请稍后重试，或手动填写待审核知识条目。",
+        }
+
+    can_draft = bool(parsed.get("can_draft"))
+    if not can_draft:
+        return {
+            "can_draft": False,
+            "reason": _safe_text(parsed.get("reason") or "模型判断不适合生成知识条目", 500),
+            "review_notes": _safe_text(parsed.get("review_notes") or "", 500),
+        }
+
+    title = _safe_text(parsed.get("title") or question, 300).strip()
+    answer = _safe_text(parsed.get("answer"), 6000).strip()
+    source = _safe_text(parsed.get("source"), 1000).strip()
+    review_notes = _safe_text(parsed.get("review_notes"), 1000).strip()
+
+    if not answer or len(answer) < 30:
+        return {
+            "can_draft": False,
+            "reason": "AI草稿内容过短，未达到入库审核要求",
+            "review_notes": review_notes or "建议手动填写，或补充更明确的问题后再生成。",
+        }
+    if not source.startswith("AI草稿，需人工核验"):
+        source = "AI草稿，需人工核验；建议核验来源：" + (source or "药品说明书、国家药监局、医院/卫健委科普或专业指南")
+
+    return {
+        "can_draft": True,
+        "title": title,
+        "answer": answer,
+        "source": source,
+        "review_notes": review_notes,
+    }
 
 
 def _append_to_drug_knowledge(update_item):
@@ -2001,6 +2109,18 @@ def api_admin_mark_log(log_id):
         handled = status in ("handled", "ignored")
     state = _update_audit_state(log_id, status=status, note=note, handled=handled)
     return jsonify({"success": True, "state": state})
+
+
+@app.route("/api/admin/rag-logs/<log_id>/draft-kb", methods=["POST"])
+def api_admin_draft_kb_from_log(log_id):
+    denied = _admin_guard()
+    if denied:
+        return denied
+    log_item = _get_audit_log(log_id)
+    if not log_item:
+        return jsonify({"success": False, "error": "log not found"}), 404
+    draft = generate_kb_draft(log_item)
+    return jsonify({"success": True, "draft": draft})
 
 
 @app.route("/api/admin/rag-logs/export.csv", methods=["GET"])

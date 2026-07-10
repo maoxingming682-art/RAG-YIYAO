@@ -653,14 +653,17 @@
                         <textarea id="kbAnswer" placeholder="审核后的标准答案，建议写来源明确的药品说明或专业资料"></textarea>
                         <input id="kbSource" placeholder="来源，例如说明书、药典、内部资料编号">
                         <div class="actions">
+                            <button id="draftKbBtn">AI生成草稿</button>
                             <button class="primary" id="saveKbFromLogBtn">保存待审核条目</button>
                         </div>
+                        <div class="status-line" id="kbDraftHint">AI草稿只用于辅助填写，审核来源后再入库。</div>
                     </div>
                 </div>
             `;
             $('detailBody').querySelectorAll('[data-action="mark"]').forEach(btn => {
                 btn.addEventListener('click', () => markLog(item.id, btn.dataset.status));
             });
+            $('draftKbBtn').addEventListener('click', () => generateKbDraft(item));
             $('saveKbFromLogBtn').addEventListener('click', () => createKbUpdate(item));
         }
 
@@ -687,6 +690,39 @@
                 body: JSON.stringify({ status, note })
             });
             await loadLogs();
+        }
+
+        async function generateKbDraft(log) {
+            const btn = $('draftKbBtn');
+            const hint = $('kbDraftHint');
+            btn.disabled = true;
+            hint.textContent = '正在生成 AI 草稿';
+            try {
+                const data = await apiFetch(`/api/admin/rag-logs/${encodeURIComponent(log.id)}/draft-kb`, {
+                    method: 'POST',
+                    body: '{}'
+                });
+                const draft = data.draft || {};
+                if (!draft.can_draft) {
+                    hint.textContent = draft.reason || '这个问题不适合生成知识库草稿';
+                    if (draft.review_notes && $('noteInput')) {
+                        $('noteInput').value = draft.review_notes;
+                    }
+                    return;
+                }
+                $('kbTitle').value = draft.title || log.question || '';
+                $('kbAnswer').value = draft.answer || '';
+                $('kbSource').value = draft.source || 'AI草稿，需人工核验；建议核验来源：药品说明书、国家药监局、医院/卫健委科普或专业指南';
+                if (draft.review_notes && $('noteInput')) {
+                    const oldNote = $('noteInput').value.trim();
+                    $('noteInput').value = oldNote ? `${oldNote}\n${draft.review_notes}` : draft.review_notes;
+                }
+                hint.textContent = '草稿已填入，请核验来源和内容后保存';
+            } catch (error) {
+                hint.textContent = error.message;
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         async function createKbUpdate(log) {
