@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG 测试管理</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f5f7f8;
+            --panel: #ffffff;
+            --text: #17212b;
+            --muted: #657282;
+            --line: #d9e0e6;
+            --blue: #276ef1;
+            --green: #168a5b;
+            --amber: #b26b00;
+            --red: #c2413a;
+            --ink: #24313f;
+            --shadow: 0 8px 24px rgba(21, 31, 43, 0.08);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        button, input, textarea, select {
+            font: inherit;
+        }
+
+        button {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--ink);
+            border-radius: 7px;
+            min-height: 34px;
+            padding: 0 12px;
+            cursor: pointer;
+        }
+
+        button:hover { border-color: #9db0c3; }
+        button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+        button.success { background: var(--green); border-color: var(--green); color: #fff; }
+        button.danger { border-color: #efb4af; color: var(--red); }
+        button.ghost { background: transparent; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px 20px;
+            background: rgba(255, 255, 255, 0.94);
+            border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(12px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 18px;
+            line-height: 1.2;
+        }
+
+        .brand span {
+            color: var(--muted);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .search {
+            width: min(320px, 42vw);
+            min-width: 180px;
+            height: 34px;
+            padding: 0 10px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #fff;
+        }
+
+        .page {
+            display: grid;
+            grid-template-columns: minmax(330px, 0.9fr) minmax(420px, 1.1fr);
+            gap: 16px;
+            padding: 16px;
+            max-width: 1480px;
+            margin: 0 auto;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            min-width: 0;
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .panel-head h2 {
+            margin: 0;
+            font-size: 15px;
+        }
+
+        .tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 30px;
+            border-radius: 999px;
+            font-size: 13px;
+        }
+
+        .tab.active {
+            background: #e9f0ff;
+            border-color: #a9c2ff;
+            color: #174ea6;
+        }
+
+        .count {
+            color: var(--muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .log-list {
+            display: grid;
+            gap: 0;
+            max-height: calc(100vh - 196px);
+            overflow: auto;
+        }
+
+        .log-item {
+            display: grid;
+            gap: 7px;
+            width: 100%;
+            min-height: 94px;
+            padding: 12px 14px;
+            text-align: left;
+            border: 0;
+            border-bottom: 1px solid var(--line);
+            border-radius: 0;
+            background: #fff;
+        }
+
+        .log-item:hover { background: #f8fafc; }
+        .log-item.active { background: #edf6ff; }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .row.between { justify-content: space-between; }
+
+        .question {
+            overflow: hidden;
+            color: var(--text);
+            font-weight: 650;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .preview {
+            display: -webkit-box;
+            overflow: hidden;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        .time {
+            flex: none;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            max-width: 140px;
+            min-height: 24px;
+            padding: 0 8px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #f7f9fb;
+            color: var(--muted);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .badge.answered { color: var(--green); border-color: #a8d8bf; background: #effaf4; }
+        .badge.pending_kb { color: var(--amber); border-color: #f0c47a; background: #fff7e8; }
+        .badge.invalid { color: #77613d; border-color: #d8c7a6; background: #fbf7ee; }
+        .badge.clarify { color: #276b7a; border-color: #a9d7df; background: #eef9fb; }
+        .badge.review { color: var(--red); border-color: #efb4af; background: #fff0ef; }
+        .badge.handled { color: var(--green); border-color: #9ad0b3; background: #effaf4; }
+        .badge.ignored { color: #6b7280; border-color: #cfd5dc; background: #f4f5f7; }
+
+        .detail {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            min-height: calc(100vh - 104px);
+        }
+
+        .detail-body {
+            display: grid;
+            gap: 14px;
+            align-content: start;
+            padding: 14px;
+            overflow: auto;
+            max-height: calc(100vh - 158px);
+        }
+
+        .block {
+            display: grid;
+            gap: 8px;
+        }
+
+        .label {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .text-box {
+            min-height: 40px;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #fbfcfd;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .mini-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .metric {
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #fbfcfd;
+        }
+
+        .metric b {
+            display: block;
+            font-size: 18px;
+        }
+
+        .metric span {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 8px;
+        }
+
+        .form-grid input,
+        .form-grid textarea {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #fff;
+            color: var(--text);
+        }
+
+        .form-grid input {
+            height: 36px;
+            padding: 0 10px;
+        }
+
+        .form-grid textarea {
+            min-height: 94px;
+            padding: 10px;
+            resize: vertical;
+            line-height: 1.55;
+        }
+
+        .split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .kb-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .kb-item {
+            display: grid;
+            gap: 8px;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #fbfcfd;
+        }
+
+        .empty {
+            padding: 26px 14px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        .token-panel {
+            display: none;
+            padding: 12px 16px;
+            background: #fff7e8;
+            border-bottom: 1px solid #f0c47a;
+        }
+
+        .token-panel.active {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .token-panel input {
+            width: min(360px, 80vw);
+            height: 34px;
+            border: 1px solid #e2ad59;
+            border-radius: 7px;
+            padding: 0 10px;
+        }
+
+        .status-line {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width: 900px) {
+            .topbar {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .toolbar {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .search {
+                width: 100%;
+            }
+
+            .page {
+                grid-template-columns: 1fr;
+                padding: 10px;
+            }
+
+            .log-list,
+            .detail-body {
+                max-height: none;
+            }
+
+            .detail {
+                min-height: auto;
+            }
+
+            .mini-grid,
+            .split {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="tokenPanel" class="token-panel">
+        <strong>Admin Token</strong>
+        <input id="tokenInput" type="password" autocomplete="off" placeholder="输入 ADMIN_TOKEN">
+        <button class="primary" id="saveTokenBtn">保存</button>
+    </div>
+
+    <header class="topbar">
+        <div class="brand">
+            <h1>RAG 测试管理</h1>
+            <span id="topHint">正在加载</span>
+        </div>
+        <div class="toolbar">
+            <input id="searchInput" class="search" type="search" placeholder="搜索问题、回答、备注">
+            <button id="refreshBtn">刷新</button>
+            <button id="exportBtn">导出 CSV</button>
+            <button id="openChatBtn">打开问答</button>
+        </div>
+    </header>
+
+    <main class="page">
+        <section class="panel">
+            <div class="panel-head">
+                <h2>测试问题</h2>
+                <span id="listHint" class="status-line">0 条</span>
+            </div>
+            <div id="tabs" class="tabs"></div>
+            <div id="logList" class="log-list"></div>
+        </section>
+
+        <section class="panel detail">
+            <div class="panel-head">
+                <h2>处理详情</h2>
+                <span id="detailStatus" class="badge">未选择</span>
+            </div>
+            <div id="detailBody" class="detail-body">
+                <div class="empty">选择左侧问题后处理</div>
+            </div>
+        </section>
+
+        <section class="panel" style="grid-column: 1 / -1;">
+            <div class="panel-head">
+                <h2>待入库知识</h2>
+                <div class="actions">
+                    <button id="reloadKbBtn">刷新条目</button>
+                    <button id="exportKbBtn">导出 JSONL</button>
+                    <button class="success" id="rebuildBtn">重建向量库</button>
+                </div>
+            </div>
+            <div class="detail-body" style="max-height: none;">
+                <div class="mini-grid">
+                    <div class="metric"><b id="kbAll">0</b><span>全部条目</span></div>
+                    <div class="metric"><b id="kbDraft">0</b><span>待审核</span></div>
+                    <div class="metric"><b id="kbApplied">0</b><span>已入库</span></div>
+                </div>
+                <div class="text-box" id="rebuildStatus">向量库重建未开始</div>
+                <div id="kbList" class="kb-list"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const statusTabs = [
+            ['all', '全部'],
+            ['answered', '已回答'],
+            ['pending_kb', '待补知识库'],
+            ['clarify', '需要澄清'],
+            ['invalid', '无效输入'],
+            ['review', '需复核'],
+            ['handled', '已处理'],
+            ['ignored', '已忽略']
+        ];
+
+        const state = {
+            token: new URLSearchParams(location.search).get('token') || localStorage.getItem('rag_admin_token') || '',
+            status: 'all',
+            keyword: '',
+            logs: [],
+            counts: {},
+            selectedId: '',
+            kbItems: [],
+            kbCounts: {}
+        };
+
+        const $ = (id) => document.getElementById(id);
+
+        function apiUrl(path) {
+            const url = new URL(path, location.origin);
+            if (state.token) url.searchParams.set('token', state.token);
+            return url.toString();
+        }
+
+        async function apiFetch(path, options = {}) {
+            const headers = Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, options.headers || {});
+            if (state.token) headers['X-Admin-Token'] = state.token;
+            const resp = await fetch(apiUrl(path), Object.assign({}, options, { headers, cache: 'no-store' }));
+            if (resp.status === 401) {
+                $('tokenPanel').classList.add('active');
+                throw new Error('需要 ADMIN_TOKEN');
+            }
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || '请求失败');
+            return data;
+        }
+
+        function esc(text) {
+            return String(text ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function badge(status, label) {
+            return `<span class="badge ${esc(status)}">${esc(label || status)}</span>`;
+        }
+
+        function formatCount(key) {
+            return state.counts[key] || 0;
+        }
+
+        function renderTabs() {
+            $('tabs').innerHTML = statusTabs.map(([key, label]) => {
+                const active = key === state.status ? ' active' : '';
+                const count = key === 'all' ? (state.counts.all || 0) : formatCount(key);
+                return `<button class="tab${active}" data-status="${key}">${label}<span class="count">${count}</span></button>`;
+            }).join('');
+            $('tabs').querySelectorAll('button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.status = btn.dataset.status;
+                    loadLogs();
+                });
+            });
+        }
+
+        function renderList() {
+            $('listHint').textContent = `${state.logs.length} 条`;
+            if (!state.logs.length) {
+                $('logList').innerHTML = '<div class="empty">暂无匹配记录</div>';
+                renderDetail(null);
+                return;
+            }
+            if (!state.selectedId || !state.logs.some(item => item.id === state.selectedId)) {
+                state.selectedId = state.logs[0].id;
+            }
+            $('logList').innerHTML = state.logs.map(item => `
+                <button class="log-item ${item.id === state.selectedId ? 'active' : ''}" data-id="${esc(item.id)}">
+                    <div class="row between">
+                        <span class="question">${esc(item.question)}</span>
+                        <span class="time">${esc(item.timestamp)}</span>
+                    </div>
+                    <div class="preview">${esc(item.answer_preview || item.answer || '旧日志没有保存回答正文')}</div>
+                    <div class="row">
+                        ${badge(item.status, item.status_label)}
+                        <span class="badge">${esc(item.triage_level || '未分诊')}</span>
+                    </div>
+                </button>
+            `).join('');
+            $('logList').querySelectorAll('.log-item').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.selectedId = btn.dataset.id;
+                    renderList();
+                    renderDetail(state.logs.find(item => item.id === state.selectedId));
+                });
+            });
+            renderDetail(state.logs.find(item => item.id === state.selectedId));
+        }
+
+        function renderDetail(item) {
+            if (!item) {
+                $('detailStatus').textContent = '未选择';
+                $('detailBody').innerHTML = '<div class="empty">选择左侧问题后处理</div>';
+                return;
+            }
+            $('detailStatus').outerHTML = badge(item.status, item.status_label).replace('<span', '<span id="detailStatus"');
+            const issues = (item.issues || []).length ? item.issues.map(x => `<span class="badge review">${esc(x)}</span>`).join('') : '<span class="badge answered">无</span>';
+            const steps = (item.steps || []).length ? item.steps.map(x => `<div>${esc(x)}</div>`).join('') : '旧日志没有保存步骤';
+            const retrieved = (item.retrieved || []).length ? item.retrieved.map(x => `<div>${esc(x.source || '')} ${x.similarity ?? ''}</div>`).join('') : '旧日志没有保存检索片段';
+            $('detailBody').innerHTML = `
+                <div class="mini-grid">
+                    <div class="metric"><b>${esc(item.triage_level || '-')}</b><span>分诊</span></div>
+                    <div class="metric"><b>${esc(item.status_label)}</b><span>状态</span></div>
+                    <div class="metric"><b>${esc(item.user_hash || '-')}</b><span>用户</span></div>
+                </div>
+
+                <div class="block">
+                    <div class="label">问题</div>
+                    <div class="text-box">${esc(item.question)}</div>
+                </div>
+
+                <div class="block">
+                    <div class="label">回答</div>
+                    <div class="text-box">${esc(item.answer || '旧日志没有保存回答正文')}</div>
+                </div>
+
+                <div class="split">
+                    <div class="block">
+                        <div class="label">问题标记</div>
+                        <div class="row" style="flex-wrap: wrap;">${issues}</div>
+                    </div>
+                    <div class="block">
+                        <div class="label">备注</div>
+                        <textarea id="noteInput" placeholder="处理备注">${esc(item.note || '')}</textarea>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button class="success" data-action="mark" data-status="handled">标记已处理</button>
+                    <button data-action="mark" data-status="pending_kb">待补知识库</button>
+                    <button data-action="mark" data-status="review">需复核</button>
+                    <button class="danger" data-action="mark" data-status="ignored">忽略</button>
+                </div>
+
+                <div class="split">
+                    <div class="block">
+                        <div class="label">处理步骤</div>
+                        <div class="text-box">${steps}</div>
+                    </div>
+                    <div class="block">
+                        <div class="label">检索命中</div>
+                        <div class="text-box">${retrieved}</div>
+                    </div>
+                </div>
+
+                <div class="block">
+                    <div class="label">新增知识条目</div>
+                    <div class="form-grid">
+                        <input id="kbTitle" placeholder="知识标题/标准问题" value="${esc(item.question)}">
+                        <textarea id="kbAnswer" placeholder="审核后的标准答案，建议写来源明确的药品说明或专业资料"></textarea>
+                        <input id="kbSource" placeholder="来源，例如说明书、药典、内部资料编号">
+                        <div class="actions">
+                            <button class="primary" id="saveKbFromLogBtn">保存待审核条目</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('detailBody').querySelectorAll('[data-action="mark"]').forEach(btn => {
+                btn.addEventListener('click', () => markLog(item.id, btn.dataset.status));
+            });
+            $('saveKbFromLogBtn').addEventListener('click', () => createKbUpdate(item));
+        }
+
+        async function loadLogs() {
+            $('topHint').textContent = '正在读取日志';
+            try {
+                const params = new URLSearchParams({ status: state.status, limit: '300' });
+                if (state.keyword) params.set('q', state.keyword);
+                const data = await apiFetch(`/api/admin/rag-logs?${params.toString()}`);
+                state.logs = data.logs || [];
+                state.counts = data.counts || {};
+                renderTabs();
+                renderList();
+                $('topHint').textContent = `共 ${state.counts.all || 0} 条测试记录`;
+            } catch (error) {
+                $('topHint').textContent = error.message;
+            }
+        }
+
+        async function markLog(id, status) {
+            const note = $('noteInput') ? $('noteInput').value : '';
+            await apiFetch(`/api/admin/rag-logs/${encodeURIComponent(id)}/mark`, {
+                method: 'POST',
+                body: JSON.stringify({ status, note })
+            });
+            await loadLogs();
+        }
+
+        async function createKbUpdate(log) {
+            const title = $('kbTitle').value.trim();
+            const answer = $('kbAnswer').value.trim();
+            const source = $('kbSource').value.trim();
+            if (!title || !answer) {
+                alert('请填写知识标题和审核后的标准答案');
+                return;
+            }
+            await apiFetch('/api/admin/kb-updates', {
+                method: 'POST',
+                body: JSON.stringify({ log_id: log.id, question: log.question, title, answer, source })
+            });
+            $('kbAnswer').value = '';
+            $('kbSource').value = '';
+            await Promise.all([loadLogs(), loadKbUpdates()]);
+        }
+
+        async function loadKbUpdates() {
+            try {
+                const data = await apiFetch('/api/admin/kb-updates');
+                state.kbItems = data.items || [];
+                state.kbCounts = data.counts || {};
+                renderKbUpdates();
+                await refreshRebuildStatus();
+            } catch (error) {
+                $('kbList').innerHTML = `<div class="empty">${esc(error.message)}</div>`;
+            }
+        }
+
+        function renderKbUpdates() {
+            $('kbAll').textContent = state.kbCounts.all || 0;
+            $('kbDraft').textContent = state.kbCounts.draft || 0;
+            $('kbApplied').textContent = state.kbCounts.applied || 0;
+            if (!state.kbItems.length) {
+                $('kbList').innerHTML = '<div class="empty">暂无待入库知识</div>';
+                return;
+            }
+            $('kbList').innerHTML = state.kbItems.slice(0, 40).map(item => `
+                <div class="kb-item">
+                    <div class="row between">
+                        <strong>${esc(item.title)}</strong>
+                        ${badge(item.status || 'draft', item.status === 'applied' ? '已入库' : item.status === 'approved' ? '已审核' : item.status === 'ignored' ? '已忽略' : '待审核')}
+                    </div>
+                    <div class="preview">${esc(item.answer)}</div>
+                    <div class="row between">
+                        <span class="status-line">${esc(item.source || '未填写来源')}</span>
+                        <div class="actions">
+                            <button data-kb-action="approve" data-id="${esc(item.id)}" ${item.status === 'applied' ? 'disabled' : ''}>审核通过</button>
+                            <button class="success" data-kb-action="apply" data-id="${esc(item.id)}" ${item.status === 'applied' ? 'disabled' : ''}>入库</button>
+                            <button class="danger" data-kb-action="ignore" data-id="${esc(item.id)}" ${item.status === 'applied' ? 'disabled' : ''}>忽略</button>
+                        </div>
+                    </div>
+                    ${item.knowledge_id ? `<div class="status-line">知识 ID：${esc(item.knowledge_id)}</div>` : ''}
+                </div>
+            `).join('');
+            $('kbList').querySelectorAll('[data-kb-action]').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.dataset.id;
+                    if (btn.dataset.kbAction === 'apply') await applyKbUpdate(id);
+                    if (btn.dataset.kbAction === 'approve') await markKbUpdate(id, 'approved');
+                    if (btn.dataset.kbAction === 'ignore') await markKbUpdate(id, 'ignored');
+                });
+            });
+        }
+
+        async function markKbUpdate(id, status) {
+            await apiFetch(`/api/admin/kb-updates/${encodeURIComponent(id)}/mark`, {
+                method: 'POST',
+                body: JSON.stringify({ status })
+            });
+            await loadKbUpdates();
+        }
+
+        async function applyKbUpdate(id) {
+            await apiFetch(`/api/admin/kb-updates/${encodeURIComponent(id)}/apply`, { method: 'POST', body: '{}' });
+            await Promise.all([loadLogs(), loadKbUpdates()]);
+        }
+
+        async function startRebuild() {
+            $('rebuildBtn').disabled = true;
+            try {
+                await apiFetch('/api/admin/rebuild-index', { method: 'POST', body: '{}' });
+                await refreshRebuildStatus();
+            } finally {
+                setTimeout(() => { $('rebuildBtn').disabled = false; }, 1200);
+            }
+        }
+
+        async function refreshRebuildStatus() {
+            const data = await apiFetch('/api/admin/rebuild-status');
+            const rebuild = data.rebuild || {};
+            $('rebuildStatus').textContent = `${rebuild.status || 'idle'}：${rebuild.message || ''}${rebuild.log_path ? '\n日志：' + rebuild.log_path : ''}`;
+            if (rebuild.running) setTimeout(refreshRebuildStatus, 3000);
+        }
+
+        function exportLogs() {
+            const params = new URLSearchParams({ status: state.status });
+            if (state.keyword) params.set('q', state.keyword);
+            if (state.token) params.set('token', state.token);
+            location.href = `/api/admin/rag-logs/export.csv?${params.toString()}`;
+        }
+
+        function exportKb() {
+            const params = new URLSearchParams();
+            if (state.token) params.set('token', state.token);
+            location.href = `/api/admin/kb-updates/export.jsonl?${params.toString()}`;
+        }
+
+        $('refreshBtn').addEventListener('click', () => Promise.all([loadLogs(), loadKbUpdates()]));
+        $('exportBtn').addEventListener('click', exportLogs);
+        $('openChatBtn').addEventListener('click', () => window.open('/', '_blank'));
+        $('reloadKbBtn').addEventListener('click', loadKbUpdates);
+        $('exportKbBtn').addEventListener('click', exportKb);
+        $('rebuildBtn').addEventListener('click', startRebuild);
+        $('saveTokenBtn').addEventListener('click', () => {
+            state.token = $('tokenInput').value.trim();
+            localStorage.setItem('rag_admin_token', state.token);
+            $('tokenPanel').classList.remove('active');
+            Promise.all([loadLogs(), loadKbUpdates()]);
+        });
+
+        let searchTimer = null;
+        $('searchInput').addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                state.keyword = $('searchInput').value.trim();
+                loadLogs();
+            }, 250);
+        });
+
+        Promise.all([loadLogs(), loadKbUpdates()]);
+    </script>
+</body>
+</html>

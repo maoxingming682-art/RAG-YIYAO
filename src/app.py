@@ -2,7 +2,7 @@
 app.py - 药业RAG demo Web服务
 前端聊天界面 + 后端API（整合所有模块）
 """
-import os, sys, json, time, re, threading, traceback, csv
+import os, sys, json, time, re, threading, traceback, csv, io, uuid, subprocess
 import numpy as np
 
 try:
@@ -455,18 +455,376 @@ def get_disclaimer(level="drug_info"):
 # ===== 审计日志 =====
 import hashlib
 AUDIT_LOG = os.path.join(BASE_DIR, "logs", "audit_log.jsonl")
+AUDIT_STATE = os.path.join(BASE_DIR, "logs", "rag_log_state.json")
+KB_UPDATES_LOG = os.path.join(DATA_DIR, "kb_updates.jsonl")
+REBUILD_STATUS = os.path.join(BASE_DIR, "logs", "rebuild_status.json")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 
-def audit_log(question, answer, level, issues, user_id="web"):
+_admin_state_lock = threading.Lock()
+_kb_updates_lock = threading.Lock()
+_rebuild_lock = threading.Lock()
+_rebuild_thread = None
+
+
+def _now():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _safe_text(value, limit=None):
+    text = "" if value is None else str(value)
+    return text[:limit] if limit else text
+
+
+def _read_json_file(path, default):
+    if not os.path.exists(path):
+        return default
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def _write_json_file(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, path)
+
+
+def _admin_allowed():
+    if not ADMIN_TOKEN:
+        return True
+    token = (
+        request.headers.get("X-Admin-Token", "")
+        or request.args.get("token", "")
+        or request.cookies.get("admin_token", "")
+    )
+    return token == ADMIN_TOKEN
+
+
+def _admin_guard():
+    if _admin_allowed():
+        return None
+    return jsonify({
+        "success": False,
+        "error": "admin token required",
+        "token_required": True,
+    }), 401
+
+
+def audit_log(question, answer, level, issues, user_id="web", retrieved=None, steps=None):
     os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
+    timestamp = _now()
+    raw_id = f"{timestamp}|{user_id}|{question}|{time.time_ns()}|{uuid.uuid4().hex[:8]}"
+    answer_text = _safe_text(answer, 4000)
     entry = {
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "id": "log_" + hashlib.sha1(raw_id.encode("utf-8")).hexdigest()[:16],
+        "timestamp": timestamp,
         "user_hash": hashlib.md5(user_id.encode()).hexdigest()[:8],
         "question": question[:200],
+        "answer": answer_text,
+        "answer_preview": answer_text.replace("\n", " ")[:300],
         "triage_level": level,
         "issues": issues,
     }
+    if retrieved is not None:
+        entry["retrieved"] = retrieved
+    if steps is not None:
+        entry["steps"] = steps
     with open(AUDIT_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+ADMIN_STATUS_LABELS = {
+    "answered": "已回答",
+    "pending_kb": "待补知识库",
+    "invalid": "无效输入",
+    "clarify": "需要澄清",
+    "review": "需复核",
+    "handled": "已处理",
+    "ignored": "已忽略",
+}
+VALID_ADMIN_STATUSES = set(ADMIN_STATUS_LABELS)
+
+
+def _load_audit_state():
+    data = _read_json_file(AUDIT_STATE, {"items": {}})
+    if not isinstance(data, dict):
+        data = {"items": {}}
+    if "items" not in data or not isinstance(data["items"], dict):
+        data["items"] = {}
+    return data
+
+
+def _save_audit_state(state):
+    _write_json_file(AUDIT_STATE, state)
+
+
+def _audit_entry_id(entry, line_no):
+    if entry.get("id"):
+        return str(entry["id"])
+    raw = "|".join([
+        str(line_no),
+        str(entry.get("timestamp", "")),
+        str(entry.get("user_hash", "")),
+        str(entry.get("question", "")),
+    ])
+    return "log_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _derive_audit_status(entry):
+    issues = [str(item) for item in (entry.get("issues") or [])]
+    level = str(entry.get("triage_level", ""))
+    if any("超纲" in item or "知识库未收录" in item or "out_of_scope" in item.lower() for item in issues):
+        return "pending_kb"
+    if any("无效输入" in item for item in issues):
+        return "invalid"
+    if level == "澄清":
+        return "clarify"
+    if any("违规" in item or "禁用" in item for item in issues):
+        return "review"
+    return "answered"
+
+
+def _load_audit_entries():
+    if not os.path.exists(AUDIT_LOG):
+        return []
+    entries = []
+    with open(AUDIT_LOG, "r", encoding="utf-8") as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            entry = dict(entry)
+            entry["id"] = _audit_entry_id(entry, line_no)
+            entry["line_no"] = line_no
+            entries.append(entry)
+    return entries
+
+
+def _hydrate_audit_entry(entry, state):
+    item_state = state.get("items", {}).get(entry["id"], {})
+    derived_status = _derive_audit_status(entry)
+    status = item_state.get("status") or entry.get("status") or derived_status
+    if status not in VALID_ADMIN_STATUSES:
+        status = derived_status
+    answer = _safe_text(entry.get("answer") or "")
+    hydrated = {
+        "id": entry["id"],
+        "timestamp": entry.get("timestamp", ""),
+        "user_hash": entry.get("user_hash", ""),
+        "question": entry.get("question", ""),
+        "answer": answer,
+        "answer_preview": entry.get("answer_preview") or answer.replace("\n", " ")[:300],
+        "triage_level": entry.get("triage_level", ""),
+        "issues": entry.get("issues") or [],
+        "retrieved": entry.get("retrieved") or [],
+        "steps": entry.get("steps") or [],
+        "line_no": entry.get("line_no"),
+        "status": status,
+        "status_label": ADMIN_STATUS_LABELS.get(status, status),
+        "derived_status": derived_status,
+        "handled": bool(item_state.get("handled")) or status in ("handled", "ignored"),
+        "note": item_state.get("note", ""),
+        "updated_at": item_state.get("updated_at", ""),
+    }
+    return hydrated
+
+
+def _query_audit_logs(status=None, keyword=None, limit=200):
+    state = _load_audit_state()
+    all_logs = [_hydrate_audit_entry(entry, state) for entry in _load_audit_entries()]
+    counts = {"all": len(all_logs)}
+    for log in all_logs:
+        counts[log["status"]] = counts.get(log["status"], 0) + 1
+
+    keyword = (keyword or "").strip().lower()
+    filtered = []
+    for log in reversed(all_logs):
+        if status and status != "all" and log["status"] != status:
+            continue
+        if keyword:
+            haystack = "\n".join([
+                log.get("question", ""),
+                log.get("answer", ""),
+                log.get("note", ""),
+                " ".join(str(x) for x in log.get("issues", [])),
+            ]).lower()
+            if keyword not in haystack:
+                continue
+        filtered.append(log)
+        if len(filtered) >= limit:
+            break
+    return filtered, counts
+
+
+def _load_kb_updates():
+    if not os.path.exists(KB_UPDATES_LOG):
+        return []
+    items = []
+    with open(KB_UPDATES_LOG, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                items.append(item)
+    return items
+
+
+def _save_kb_updates(items):
+    os.makedirs(os.path.dirname(KB_UPDATES_LOG), exist_ok=True)
+    tmp_path = f"{KB_UPDATES_LOG}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    os.replace(tmp_path, KB_UPDATES_LOG)
+
+
+def _update_audit_state(log_id, status=None, note=None, handled=None):
+    with _admin_state_lock:
+        state = _load_audit_state()
+        current = state["items"].get(log_id, {})
+        if status:
+            current["status"] = status
+        if note is not None:
+            current["note"] = _safe_text(note, 1000)
+        if handled is not None:
+            current["handled"] = bool(handled)
+        current["updated_at"] = _now()
+        state["items"][log_id] = current
+        _save_audit_state(state)
+        return current
+
+
+def _append_to_drug_knowledge(update_item):
+    knowledge_path = os.path.join(DATA_DIR, "drug_knowledge.json")
+    if not os.path.exists(knowledge_path):
+        raise FileNotFoundError("data/drug_knowledge.json not found")
+    with open(knowledge_path, "r", encoding="utf-8") as f:
+        knowledge = json.load(f)
+    if not isinstance(knowledge, list):
+        raise ValueError("drug_knowledge.json format must be a list")
+
+    question = (update_item.get("title") or update_item.get("question") or "").strip()
+    answer = (update_item.get("answer") or "").strip()
+    if not question or not answer:
+        raise ValueError("question/title and answer are required")
+
+    if update_item.get("knowledge_id"):
+        return update_item["knowledge_id"], False
+
+    raw_id = f"{question}|{answer}|{time.time_ns()}"
+    knowledge_id = "kb_" + hashlib.sha1(raw_id.encode("utf-8")).hexdigest()[:12]
+    knowledge.append({
+        "id": knowledge_id,
+        "question": question,
+        "answer": answer,
+        "text": f"问题：{question}\n答案：{answer}",
+        "source": update_item.get("source", ""),
+        "created_from_log": update_item.get("log_id", ""),
+    })
+    tmp_path = f"{knowledge_path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(knowledge, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, knowledge_path)
+    return knowledge_id, True
+
+
+def _write_rebuild_status(data):
+    data["updated_at"] = _now()
+    _write_json_file(REBUILD_STATUS, data)
+
+
+def _read_rebuild_status():
+    return _read_json_file(REBUILD_STATUS, {
+        "running": False,
+        "status": "idle",
+        "message": "未开始",
+        "updated_at": "",
+    })
+
+
+def _reload_vector_files_if_ready():
+    global _vectors, _chunks, _models_loaded
+    chunks_path = os.path.join(DATA_DIR, "chunks.json")
+    vectors_path = os.path.join(DATA_DIR, "vectors.npy")
+    if not (os.path.exists(chunks_path) and os.path.exists(vectors_path)):
+        return
+    if _embed_tok is None or _embed_mdl is None:
+        _models_loaded = False
+        return
+    _vectors = np.load(vectors_path)
+    with open(chunks_path, "r", encoding="utf-8") as f:
+        _chunks = json.load(f)
+    _models_loaded = True
+
+
+def _run_rebuild_job():
+    global _rebuild_thread
+    log_path = os.path.join(BASE_DIR, "logs", "embed_rebuild_admin.log")
+    python_exe = os.path.join(BASE_DIR, "venv", "Scripts", "python.exe")
+    if not os.path.exists(python_exe):
+        python_exe = sys.executable
+    cmd = [python_exe, "-u", os.path.join(BASE_DIR, "src", "02_chunk_embed.py")]
+    _write_rebuild_status({
+        "running": True,
+        "status": "running",
+        "message": "正在重建向量库",
+        "log_path": log_path,
+        "started_at": _now(),
+    })
+    try:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(f"\n\n===== rebuild started at {_now()} =====\n")
+            proc = subprocess.Popen(
+                cmd,
+                cwd=BASE_DIR,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+            )
+            code = proc.wait()
+        if code == 0:
+            _reload_vector_files_if_ready()
+            _write_rebuild_status({
+                "running": False,
+                "status": "done",
+                "message": "向量库重建完成；如服务未预加载模型，请重启服务后再测试新知识",
+                "log_path": log_path,
+                "finished_at": _now(),
+            })
+        else:
+            _write_rebuild_status({
+                "running": False,
+                "status": "failed",
+                "message": f"向量库重建失败，退出码 {code}",
+                "log_path": log_path,
+                "finished_at": _now(),
+            })
+    except Exception as exc:
+        _write_rebuild_status({
+            "running": False,
+            "status": "failed",
+            "message": str(exc),
+            "log_path": log_path,
+            "finished_at": _now(),
+        })
+    finally:
+        with _rebuild_lock:
+            _rebuild_thread = None
 
 
 # ===== 问题类型识别 → 对应微调训练数据的4种回答风格 =====
@@ -1266,7 +1624,7 @@ def process_question(question, history=None):
             result["triage"] = {"level": "澄清", "recommend_drugs": False, "needs_doctor": False}
             result["steps"].append("选项补全：需要继续澄清")
             result["question"] = f"选择第{choice_info['number']}项：{choice_info['option']}"
-            audit_log(result["question"], answer, "澄清", [])
+            audit_log(result["question"], answer, "澄清", [], retrieved=result["retrieved"], steps=result["steps"])
             return result
         rewritten = choice_result.get("question")
         if rewritten and rewritten != question:
@@ -1321,7 +1679,7 @@ def process_question(question, history=None):
             answer += get_disclaimer("see_doctor")
         result["answer"] = answer
         result["steps"].append("已拦截：引导就医")
-        audit_log(masked, answer, level, [])
+        audit_log(masked, answer, level, [], retrieved=result["retrieved"], steps=result["steps"])
         return result
 
     # 2.4 无效输入拦截：单字符/纯数字/无意义输入
@@ -1331,7 +1689,7 @@ def process_question(question, history=None):
         result["answer"] = answer
         result["steps"].append("无效输入：过短/纯数字")
         result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
-        audit_log(masked, answer, "闲聊", ["无效输入"])
+        audit_log(masked, answer, "闲聊", ["无效输入"], retrieved=result["retrieved"], steps=result["steps"])
         return result
 
     # 2.5 闲聊/非用药问题检测（在检索前拦截）
@@ -1379,7 +1737,7 @@ def process_question(question, history=None):
         result["answer"] = reply
         result["steps"].append("闲聊处理：本地秒回")
         result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
-        audit_log(masked, reply, "闲聊", [])
+        audit_log(masked, reply, "闲聊", [], retrieved=result["retrieved"], steps=result["steps"])
         return result
 
     # 3. Query Rewrite：多轮追问改写成完整问题（解决"那用什么药"指代不明）
@@ -1409,7 +1767,7 @@ def process_question(question, history=None):
         answer = build_knowledge_gap_reply(masked, max_sim, context)
         result["answer"] = answer
         result["steps"].append("超纲兜底：知识库未收录")
-        audit_log(masked, answer, level, ["超纲"])
+        audit_log(masked, answer, level, ["超纲"], retrieved=result["retrieved"], steps=result["steps"])
         return result
 
     # 6. 生成答案：默认用大模型(llm_pool)，本地1.5B仅作离线兜底
@@ -1495,7 +1853,7 @@ def process_question(question, history=None):
         disclaimer = get_disclaimer("drug_info")
 
     result["answer"] = partial_prefix + raw_answer + disclaimer
-    audit_log(masked, result["answer"], level, result["issues"])
+    audit_log(masked, result["answer"], level, result["issues"], retrieved=result["retrieved"], steps=result["steps"])
     return result
 
 
@@ -1503,6 +1861,10 @@ def process_question(question, history=None):
 @app.route("/")
 def index():
     return send_from_directory(BASE_DIR, "index.html")
+
+@app.route("/admin/rag-logs")
+def admin_rag_logs_page():
+    return send_from_directory(BASE_DIR, "admin_rag_logs.html")
 
 @app.route("/<path:filename>")
 def serve_static(filename):
@@ -1541,6 +1903,228 @@ def api_status():
         "chunks": len(_chunks) if _models_loaded else 0,
         "apis": get_status(),
     })
+
+
+@app.route("/api/admin/status", methods=["GET"])
+def api_admin_status():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    logs, counts = _query_audit_logs(limit=1)
+    return jsonify({
+        "success": True,
+        "protected": bool(ADMIN_TOKEN),
+        "token_required": bool(ADMIN_TOKEN),
+        "counts": counts,
+        "latest": logs[0] if logs else None,
+        "rebuild": _read_rebuild_status(),
+    })
+
+
+@app.route("/api/admin/rag-logs", methods=["GET"])
+def api_admin_rag_logs():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    status = request.args.get("status", "all")
+    keyword = request.args.get("q", "")
+    try:
+        limit = int(request.args.get("limit", "200"))
+    except ValueError:
+        limit = 200
+    limit = max(1, min(limit, 2000))
+    logs, counts = _query_audit_logs(status=status, keyword=keyword, limit=limit)
+    return jsonify({
+        "success": True,
+        "logs": logs,
+        "counts": counts,
+        "status_labels": ADMIN_STATUS_LABELS,
+    })
+
+
+@app.route("/api/admin/rag-logs/<log_id>/mark", methods=["POST"])
+def api_admin_mark_log(log_id):
+    denied = _admin_guard()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    status = (data.get("status") or "").strip()
+    if status not in VALID_ADMIN_STATUSES:
+        return jsonify({"success": False, "error": "invalid status"}), 400
+    note = data.get("note")
+    handled = data.get("handled")
+    if handled is None:
+        handled = status in ("handled", "ignored")
+    state = _update_audit_state(log_id, status=status, note=note, handled=handled)
+    return jsonify({"success": True, "state": state})
+
+
+@app.route("/api/admin/rag-logs/export.csv", methods=["GET"])
+def api_admin_export_logs():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    status = request.args.get("status", "all")
+    keyword = request.args.get("q", "")
+    logs, _counts = _query_audit_logs(status=status, keyword=keyword, limit=10000)
+    output = io.StringIO()
+    fields = ["timestamp", "status_label", "triage_level", "question", "answer_preview", "issues", "note"]
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    for log in logs:
+        writer.writerow({
+            "timestamp": log.get("timestamp", ""),
+            "status_label": log.get("status_label", ""),
+            "triage_level": log.get("triage_level", ""),
+            "question": log.get("question", ""),
+            "answer_preview": log.get("answer_preview", ""),
+            "issues": " | ".join(str(x) for x in log.get("issues", [])),
+            "note": log.get("note", ""),
+        })
+    csv_text = "\ufeff" + output.getvalue()
+    return Response(
+        csv_text,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=rag_logs.csv"},
+    )
+
+
+@app.route("/api/admin/kb-updates", methods=["GET"])
+def api_admin_kb_updates():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    status = request.args.get("status", "all")
+    items = list(reversed(_load_kb_updates()))
+    counts = {"all": len(items)}
+    for item in items:
+        counts[item.get("status", "draft")] = counts.get(item.get("status", "draft"), 0) + 1
+    if status and status != "all":
+        items = [item for item in items if item.get("status", "draft") == status]
+    return jsonify({"success": True, "items": items, "counts": counts})
+
+
+@app.route("/api/admin/kb-updates", methods=["POST"])
+def api_admin_create_kb_update():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    question = _safe_text(data.get("question"), 300).strip()
+    title = _safe_text(data.get("title") or question, 300).strip()
+    answer = _safe_text(data.get("answer"), 6000).strip()
+    source = _safe_text(data.get("source"), 1000).strip()
+    log_id = _safe_text(data.get("log_id"), 80).strip()
+    if not title or not answer:
+        return jsonify({"success": False, "error": "title and answer are required"}), 400
+    item = {
+        "id": "kbupd_" + uuid.uuid4().hex[:16],
+        "created_at": _now(),
+        "updated_at": _now(),
+        "log_id": log_id,
+        "question": question,
+        "title": title,
+        "answer": answer,
+        "source": source,
+        "note": _safe_text(data.get("note"), 1000).strip(),
+        "status": "draft",
+    }
+    with _kb_updates_lock:
+        items = _load_kb_updates()
+        items.append(item)
+        _save_kb_updates(items)
+    if log_id:
+        _update_audit_state(log_id, status="pending_kb", note="已创建待审核知识条目", handled=False)
+    return jsonify({"success": True, "item": item})
+
+
+@app.route("/api/admin/kb-updates/<update_id>/mark", methods=["POST"])
+def api_admin_mark_kb_update(update_id):
+    denied = _admin_guard()
+    if denied:
+        return denied
+    data = request.get_json(force=True) or {}
+    status = (data.get("status") or "").strip()
+    if status not in {"draft", "approved", "applied", "ignored"}:
+        return jsonify({"success": False, "error": "invalid status"}), 400
+    with _kb_updates_lock:
+        items = _load_kb_updates()
+        target = None
+        for item in items:
+            if item.get("id") == update_id:
+                target = item
+                break
+        if not target:
+            return jsonify({"success": False, "error": "not found"}), 404
+        target["status"] = status
+        if data.get("note") is not None:
+            target["note"] = _safe_text(data.get("note"), 1000)
+        target["updated_at"] = _now()
+        _save_kb_updates(items)
+    return jsonify({"success": True, "item": target})
+
+
+@app.route("/api/admin/kb-updates/<update_id>/apply", methods=["POST"])
+def api_admin_apply_kb_update(update_id):
+    denied = _admin_guard()
+    if denied:
+        return denied
+    with _kb_updates_lock:
+        items = _load_kb_updates()
+        target = None
+        for item in items:
+            if item.get("id") == update_id:
+                target = item
+                break
+        if not target:
+            return jsonify({"success": False, "error": "not found"}), 404
+        try:
+            knowledge_id, appended = _append_to_drug_knowledge(target)
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 500
+        target["status"] = "applied"
+        target["knowledge_id"] = knowledge_id
+        target["applied_at"] = _now()
+        target["updated_at"] = _now()
+        _save_kb_updates(items)
+    if target.get("log_id"):
+        _update_audit_state(target["log_id"], status="handled", note=f"已入库: {knowledge_id}", handled=True)
+    return jsonify({"success": True, "item": target, "appended": appended})
+
+
+@app.route("/api/admin/kb-updates/export.jsonl", methods=["GET"])
+def api_admin_export_kb_updates():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    text = "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in _load_kb_updates())
+    return Response(
+        text,
+        mimetype="application/x-jsonlines; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=kb_updates.jsonl"},
+    )
+
+
+@app.route("/api/admin/rebuild-index", methods=["POST"])
+def api_admin_rebuild_index():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    global _rebuild_thread
+    with _rebuild_lock:
+        if _rebuild_thread and _rebuild_thread.is_alive():
+            return jsonify({"success": True, "rebuild": _read_rebuild_status(), "already_running": True})
+        _rebuild_thread = threading.Thread(target=_run_rebuild_job, daemon=True)
+        _rebuild_thread.start()
+    return jsonify({"success": True, "rebuild": _read_rebuild_status(), "started": True})
+
+
+@app.route("/api/admin/rebuild-status", methods=["GET"])
+def api_admin_rebuild_status():
+    denied = _admin_guard()
+    if denied:
+        return denied
+    return jsonify({"success": True, "rebuild": _read_rebuild_status()})
 
 
 # ===== 流式问答接口（SSE）=====
@@ -1589,7 +2173,7 @@ def api_ask_stream():
                     result["question"] = f"选择第{choice_info['number']}项：{choice_info['option']}"
                     yield sse({"type": "meta", "result": result})
                     yield sse({"type": "done", "result": result})
-                    audit_log(result["question"], answer, "澄清", [])
+                    audit_log(result["question"], answer, "澄清", [], retrieved=result["retrieved"], steps=result["steps"])
                     return
                 rewritten = choice_result.get("question")
                 if rewritten and rewritten != current_question:
@@ -1629,7 +2213,7 @@ def api_ask_stream():
                 result["steps"].append("已拦截：引导就医（safety_layer）")
                 yield sse({"type": "meta", "result": result})
                 yield sse({"type": "done"})
-                audit_log(masked, answer, level, [])
+                audit_log(masked, answer, level, [], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
             # 无效输入
@@ -1641,7 +2225,7 @@ def api_ask_stream():
                 result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
                 yield sse({"type": "meta", "result": result})
                 yield sse({"type": "done"})
-                audit_log(masked, answer, "闲聊", ["无效输入"])
+                audit_log(masked, answer, "闲聊", ["无效输入"], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
             # 闲聊（无历史时）
@@ -1672,7 +2256,7 @@ def api_ask_stream():
                 result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
                 yield sse({"type": "meta", "result": result})
                 yield sse({"type": "done"})
-                audit_log(masked, reply, "闲聊", [])
+                audit_log(masked, reply, "闲聊", [], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
             # Query Rewrite
@@ -1704,7 +2288,7 @@ def api_ask_stream():
                 result["steps"].append("超纲兜底：知识库未收录")
                 yield sse({"type": "meta", "result": result})
                 yield sse({"type": "done"})
-                audit_log(masked, answer, level, ["超纲"])
+                audit_log(masked, answer, level, ["超纲"], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
             # === 推送元信息（前端立即显示分诊/检索状态）===
@@ -1828,7 +2412,7 @@ def api_ask_stream():
 
             result["answer"] = full_answer
             yield sse({"type": "done", "result": result})
-            audit_log(masked, full_answer, level, result["issues"])
+            audit_log(masked, full_answer, level, result["issues"], retrieved=result["retrieved"], steps=result["steps"])
 
         except Exception as e:
             traceback.print_exc()
