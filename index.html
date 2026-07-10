@@ -35,6 +35,16 @@
     </style>
 </head>
 <body class="h-screen overflow-hidden bg-slate-100 text-slate-900">
+    <div
+        id="voiceUnavailableToast"
+        class="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 opacity-0 transition-opacity duration-200"
+        aria-live="polite"
+        aria-hidden="true"
+    >
+        <div class="rounded-md border border-slate-300 bg-slate-950 px-3 py-2 text-sm font-medium text-white shadow-lg">
+            当前麦克风无法使用
+        </div>
+    </div>
     <!--
       LangUI-derived MIT snippets adapted for this static Flask page:
       public/components/components-prompt-containers/1.html
@@ -228,6 +238,33 @@
                         ></textarea>
                         <div>
                             <button
+                                id="micBtn"
+                                class="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-600 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600 dark:text-slate-200 dark:hover:text-blue-600"
+                                type="button"
+                                title="语音输入"
+                                aria-label="语音输入"
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    class="h-6 w-6"
+                                    aria-hidden="true"
+                                    viewBox="0 0 24 24"
+                                    stroke-width="2"
+                                    stroke="currentColor"
+                                    fill="none"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
+                                    <path d="M9 5a3 3 0 0 1 6 0v5a3 3 0 0 1 -6 0z"></path>
+                                    <path d="M5 10a7 7 0 0 0 14 0"></path>
+                                    <path d="M8 21h8"></path>
+                                    <path d="M12 17v4"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div>
+                            <button
                                 id="sendBtn"
                                 class="inline-flex hover:text-blue-600 disabled:text-slate-400 dark:text-slate-200 dark:hover:text-blue-600 sm:p-2"
                                 type="submit"
@@ -269,6 +306,8 @@
         const chatInner = document.getElementById('chatInner');
         const promptForm = document.getElementById('promptForm');
         const inputBox = document.getElementById('inputBox');
+        const micBtn = document.getElementById('micBtn');
+        const voiceUnavailableToast = document.getElementById('voiceUnavailableToast');
         const sendBtn = document.getElementById('sendBtn');
         const sendIdle = document.getElementById('sendIdle');
         const sendBusy = document.getElementById('sendBusy');
@@ -279,6 +318,7 @@
         const metricTopic = document.getElementById('metricTopic');
 
         let chatHistory = [];
+        let voiceToastTimer = null;
 
         inputBox.addEventListener('input', () => {
             inputBox.style.height = 'auto';
@@ -295,6 +335,10 @@
         promptForm.addEventListener('submit', (event) => {
             event.preventDefault();
             sendQuestion();
+        });
+
+        micBtn.addEventListener('click', () => {
+            showVoiceUnavailable();
         });
 
         contextStack.addEventListener('click', (event) => {
@@ -343,6 +387,20 @@
 
         function scrollToBottom() {
             chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function showVoiceUnavailable() {
+            statusBar.textContent = '麦克风不可用';
+            voiceUnavailableToast.classList.remove('opacity-0');
+            voiceUnavailableToast.classList.add('opacity-100');
+            voiceUnavailableToast.setAttribute('aria-hidden', 'false');
+
+            window.clearTimeout(voiceToastTimer);
+            voiceToastTimer = window.setTimeout(() => {
+                voiceUnavailableToast.classList.remove('opacity-100');
+                voiceUnavailableToast.classList.add('opacity-0');
+                voiceUnavailableToast.setAttribute('aria-hidden', 'true');
+            }, 2200);
         }
 
         function setBusy(isBusy) {
