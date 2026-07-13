@@ -1474,6 +1474,88 @@ def build_knowledge_gap_reply(question, max_sim=0.0, context=None):
     )
 
 
+def _is_science_education_question(question):
+    q = str(question or "")
+    education_markers = [
+        "科普", "讲讲", "解释", "原理", "为什么", "怎么回事", "是什么",
+        "常识", "了解一下", "能不能讲", "能简单说",
+    ]
+    antibiotic_markers = [
+        "抗生素", "抗菌药", "消炎药", "左氧", "左氧氟沙星",
+        "阿莫西林", "头孢", "罗红霉素", "阿奇霉素",
+    ]
+    respiratory_markers = ["感冒", "流鼻涕", "鼻塞", "咳嗽", "喉咙痛", "咽痛", "发烧", "发热"]
+    can_use_markers = ["能用", "能吃", "可以用", "可以吃", "有用吗", "管用吗", "要不要吃"]
+    if any(marker in q for marker in education_markers):
+        return True
+    if any(a in q for a in antibiotic_markers) and any(r in q for r in respiratory_markers) and any(c in q for c in can_use_markers):
+        return True
+    return False
+
+
+def build_science_education_reply(question, max_sim=0.0, evidence_reason="", context=None):
+    """受限科普：能讲通用原理，但不替代诊断、不直接给用药指令。"""
+    q = str(question or "")
+    lines = [
+        "可以做科普，但我先把边界说清楚：下面只解释一般原理，不能替代医生诊断，也不能当作具体用药处方。",
+    ]
+
+    antibiotic_markers = ["抗生素", "抗菌药", "消炎药", "左氧", "左氧氟沙星", "阿莫西林", "头孢", "罗红霉素", "阿奇霉素"]
+    cold_markers = ["感冒", "流鼻涕", "鼻塞", "咳嗽", "喉咙痛", "咽痛", "发烧", "发热"]
+
+    if any(m in q for m in cold_markers) and any(m in q for m in antibiotic_markers):
+        lines.extend([
+            "",
+            "普通感冒多数是病毒感染，抗生素主要针对细菌，对病毒本身通常没有作用。所以像左氧氟沙星、阿莫西林、头孢这类抗菌药，一般不建议自行用于普通感冒。",
+            "",
+            "什么时候需要医生判断？如果出现持续高热、明显脓性痰、胸痛气促、症状超过数天仍加重，或有基础疾病、儿童/孕妇/老人等情况，需要就医评估是否合并细菌感染。",
+            "",
+            "能做的安全科普结论是：感冒时可以关注休息、补水、体温变化和症状持续时间；是否需要抗菌药，应由医生或药师结合病情判断。不要自行用处方抗菌药，也不要把别人剩下的抗生素拿来吃。",
+        ])
+    elif any(m in q for m in cold_markers):
+        lines.extend([
+            "",
+            "普通感冒常见表现包括鼻塞、流鼻涕、咽痛、咳嗽、低热、乏力等，多数情况下以对症处理和休息为主。",
+            "",
+            "如果只是轻微鼻塞、流清涕、咽部不适，可以先观察症状变化，注意补水和休息。若要讨论具体感冒药，需要明确药品名称、成分、年龄、基础疾病和正在服用的药物。",
+            "",
+            "需要及时就医的情况包括：高热不退、呼吸困难、胸痛、意识异常、严重过敏、症状明显加重，或儿童、孕妇、老人、有慢性病人群出现不适。",
+        ])
+    else:
+        lines.extend([
+            "",
+            "这个问题目前更适合先按健康科普处理：我可以解释常见原理、风险点和需要补充的信息，但不能在知识库证据不足时直接推荐具体药品、剂量或疗程。",
+            "",
+            "如果您想进一步问具体用药，请补充药品全名、规格、年龄、症状持续时间、是否过敏以及正在使用的其他药物。",
+        ])
+
+    if evidence_reason:
+        lines.extend(["", f"另外，当前检索证据不足以直接支持具体药品结论：{evidence_reason}。"])
+
+    lines.append(get_disclaimer("out_of_scope"))
+    return "\n".join(lines)
+
+
+def should_use_limited_science_mode(question, max_sim=0.0, evidence_ok=True):
+    q = str(question or "")
+    antibiotic_markers = ["抗生素", "抗菌药", "消炎药", "左氧", "左氧氟沙星", "阿莫西林", "头孢", "罗红霉素", "阿奇霉素"]
+    cold_markers = ["感冒", "流鼻涕", "鼻塞", "咳嗽", "喉咙痛", "咽痛", "发烧", "发热"]
+    education_markers = ["科普", "讲讲", "解释", "原理", "为什么", "怎么回事", "常识"]
+    if not (
+        any(marker in q for marker in education_markers)
+        or (any(a in q for a in antibiotic_markers) and any(c in q for c in cold_markers))
+        or _is_science_education_question(q)
+    ):
+        return False
+    if any(a in q for a in antibiotic_markers) and any(c in q for c in cold_markers):
+        return True
+    if max_sim < 0.65 or not evidence_ok:
+        return True
+    if "科普" in q and any(c in q for c in cold_markers) and not _expand_aliases(q):
+        return True
+    return False
+
+
 def build_price_gap_prefix(question):
     if any(word in question for word in PRICE_INTENT_WORDS):
         return "关于价格，知识库暂无价格信息；实际价格会因规格、地区和购买渠道变化，我不能编价格。\n\n"
@@ -1914,12 +1996,25 @@ def process_question(question, history=None):
     if not evidence_ok:
         result["steps"].append(f"证据校验未通过：{evidence_reason}")
 
+    if should_use_limited_science_mode(masked, max_sim, evidence_ok):
+        answer = build_science_education_reply(masked, max_sim, evidence_reason, context)
+        result["answer"] = answer
+        result["steps"].append("受限科普：只讲通用原理和风险边界")
+        audit_log(masked, answer, level, ["受限科普"], retrieved=result["retrieved"], steps=result["steps"])
+        return result
+
     # 5. 超纲检测（阈值从0.60提到0.65，减少检索到不相关内容导致跑偏）
     if max_sim < 0.65 or not evidence_ok:
-        answer = build_knowledge_gap_reply(masked, max_sim, context)
+        if _is_science_education_question(masked):
+            answer = build_science_education_reply(masked, max_sim, evidence_reason, context)
+            result["steps"].append("受限科普：证据不足，不给具体用药指令")
+            issues = ["受限科普"]
+        else:
+            answer = build_knowledge_gap_reply(masked, max_sim, context)
+            result["steps"].append("超纲兜底：知识库未收录")
+            issues = ["超纲"]
         result["answer"] = answer
-        result["steps"].append("超纲兜底：知识库未收录")
-        audit_log(masked, answer, level, ["超纲"], retrieved=result["retrieved"], steps=result["steps"])
+        audit_log(masked, answer, level, issues, retrieved=result["retrieved"], steps=result["steps"])
         return result
 
     # 6. 生成答案：默认用大模型(llm_pool)，本地1.5B仅作离线兜底
@@ -1960,6 +2055,8 @@ def process_question(question, history=None):
 5. 不要做诊断，用"可能是""建议咨询医生"等措辞
 6. 如果用户问价格/多少钱，而知识库没有价格信息，要明确说"知识库暂无价格信息"，不要编造价格
 7. 用户问题如有错别字，应按纠正后的语义回答，不要纠结错字本身
+8. 如果用户是在问疾病/症状科普，可以讲一般原理和风险边界；但如果不是知识库直接支持的适应症，不要说"适合用/推荐用/可以吃"，只能说"从成分作用看可能覆盖部分症状，仍需核对说明书或咨询医生/药师"
+9. 对抗生素/处方药问题，只能做风险科普和就医提醒，不要建议自行使用
 
 {price_generation_hint}
 {style_prompt}
@@ -2461,13 +2558,27 @@ def api_ask_stream():
             if not evidence_ok:
                 result["steps"].append(f"证据校验未通过：{evidence_reason}")
 
-            # 超纲：用18_safety_layer的build_out_of_scope_reply（含药品名提取+分级免责）
-            if max_sim < 0.65 or not evidence_ok:
-                answer = build_knowledge_gap_reply(masked, max_sim, context)
-                result["steps"].append("超纲兜底：知识库未收录")
+            if should_use_limited_science_mode(masked, max_sim, evidence_ok):
+                answer = build_science_education_reply(masked, max_sim, evidence_reason, context)
+                result["steps"].append("受限科普：只讲通用原理和风险边界")
                 for event in stream_answer_events(result, answer):
                     yield event
-                audit_log(masked, answer, level, ["超纲"], retrieved=result["retrieved"], steps=result["steps"])
+                audit_log(masked, answer, level, ["受限科普"], retrieved=result["retrieved"], steps=result["steps"])
+                return
+
+            # 超纲：用18_safety_layer的build_out_of_scope_reply（含药品名提取+分级免责）
+            if max_sim < 0.65 or not evidence_ok:
+                if _is_science_education_question(masked):
+                    answer = build_science_education_reply(masked, max_sim, evidence_reason, context)
+                    result["steps"].append("受限科普：证据不足，不给具体用药指令")
+                    issues = ["受限科普"]
+                else:
+                    answer = build_knowledge_gap_reply(masked, max_sim, context)
+                    result["steps"].append("超纲兜底：知识库未收录")
+                    issues = ["超纲"]
+                for event in stream_answer_events(result, answer):
+                    yield event
+                audit_log(masked, answer, level, issues, retrieved=result["retrieved"], steps=result["steps"])
                 return
 
             # === 推送元信息（前端立即显示分诊/检索状态）===
@@ -2504,6 +2615,8 @@ def api_ask_stream():
 5. 不要做诊断，用"可能是""建议咨询医生"等措辞
 6. 如果用户问价格/多少钱，而知识库没有价格信息，要明确说"知识库暂无价格信息"，不要编造价格
 7. 用户问题如有错别字，应按纠正后的语义回答，不要纠结错字本身
+8. 如果用户是在问疾病/症状科普，可以讲一般原理和风险边界；但如果不是知识库直接支持的适应症，不要说"适合用/推荐用/可以吃"，只能说"从成分作用看可能覆盖部分症状，仍需核对说明书或咨询医生/药师"
+9. 对抗生素/处方药问题，只能做风险科普和就医提醒，不要建议自行使用
 
 {price_generation_hint}
 {style_prompt}
