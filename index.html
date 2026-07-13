@@ -15,289 +15,897 @@
             }
         })();
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        :root {
+            --sidebar: #eaf2f8;
+            --sidebar-strong: #dce8f1;
+            --surface: #ffffff;
+            --surface-soft: #f7f8fa;
+            --line: #e6e8ec;
+            --line-strong: #d6dbe2;
+            --text: #20242a;
+            --muted: #727984;
+            --faint: #a2a8b1;
+            --accent: #f05a28;
+            --accent-soft: #fff0e8;
+            --blue: #4b7bec;
+            --success: #2f9e6d;
+            --shadow: 0 18px 48px rgba(30, 41, 59, 0.12);
+        }
+
         * { box-sizing: border-box; }
-        body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
+
+        body {
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            color: var(--text);
+            background: var(--surface);
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        button, textarea, select { font: inherit; }
+        button { color: inherit; }
+
+        .app-shell {
+            display: grid;
+            grid-template-columns: 298px minmax(0, 1fr);
+            height: 100vh;
+            width: 100vw;
+            background: var(--surface);
+        }
+
+        .sidebar {
+            position: relative;
+            display: flex;
+            min-width: 0;
+            flex-direction: column;
+            background: var(--sidebar);
+            border-right: 1px solid var(--line-strong);
+            color: #333941;
+        }
+
+        .desktop-menu {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            height: 34px;
+            padding: 0 12px;
+            color: #6d747d;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .window-dot {
+            display: inline-flex;
+            width: 16px;
+            height: 16px;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #aeb8c3;
+            border-radius: 4px;
+        }
+
+        .menu-arrow {
+            border: 0;
+            background: transparent;
+            color: #aeb6c0;
+            cursor: default;
+            padding: 0;
+        }
+
+        .side-scroll {
+            min-height: 0;
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px 10px 84px;
+        }
+
+        .nav-group { display: grid; gap: 2px; margin-bottom: 24px; }
+
+        .nav-button,
+        .project-button,
+        .history-button {
+            display: flex;
+            width: 100%;
+            align-items: center;
+            gap: 10px;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            padding: 8px 7px;
+            text-align: left;
+            color: #2f3740;
+            cursor: pointer;
+        }
+
+        .nav-button:hover,
+        .project-button:hover,
+        .history-button:hover { background: rgba(255, 255, 255, 0.55); }
+
+        .nav-button svg,
+        .project-button svg,
+        .history-button svg,
+        .suggestion-row svg,
+        .link-icon svg {
+            width: 16px;
+            height: 16px;
+            flex: 0 0 auto;
+            stroke-width: 1.8;
+        }
+
+        .section-label {
+            margin: 20px 7px 8px;
+            color: #8a929c;
+            font-size: 13px;
+        }
+
+        .project-button {
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .project-main {
+            display: flex;
+            min-width: 0;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .project-title,
+        .history-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .project-sub {
+            display: block;
+            margin: 0 0 7px 38px;
+            color: #a1a8b0;
+            font-size: 13px;
+        }
+
+        .project-button.active { background: rgba(255, 255, 255, 0.68); }
+        .project-time { flex: 0 0 auto; color: #8b939c; font-size: 13px; }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin: 10px 6px 4px;
+        }
+
+        .metric {
+            border: 1px solid rgba(190, 202, 214, 0.8);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.42);
+            padding: 9px 10px;
+        }
+
+        .metric-value {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 16px;
+            font-weight: 650;
+        }
+
+        .metric-label {
+            margin-top: 3px;
+            color: #8b939c;
+            font-size: 12px;
+        }
+
+        .history-list {
+            display: grid;
+            gap: 2px;
+            margin: 4px 0 10px;
+        }
+
+        .history-button {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            padding: 8px 7px;
+        }
+
+        .history-top {
+            display: flex;
+            min-width: 0;
+            width: 100%;
+            align-items: center;
+            gap: 8px;
+            color: #343b43;
+            font-size: 14px;
+        }
+
+        .history-meta {
+            margin-left: 24px;
+            color: #9aa2ac;
+            font-size: 12px;
+        }
+
+        .empty-history {
+            margin: 2px 7px;
+            color: #9aa2ac;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .sidebar-footer {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-top: 1px solid var(--line-strong);
+            background: rgba(234, 242, 248, 0.96);
+            padding: 12px 16px;
+        }
+
+        .settings-dot {
+            display: inline-flex;
+            width: 32px;
+            height: 32px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: #eee9ff;
+            color: #7c3aed;
+        }
+
+        .settings-title { font-size: 14px; font-weight: 600; }
+        .settings-sub { color: #8c949e; font-size: 12px; }
+
+        .workspace {
+            position: relative;
+            display: flex;
+            min-width: 0;
+            flex-direction: column;
+            background: var(--surface);
+        }
+
+        .workspace-tools {
+            position: absolute;
+            top: 15px;
+            right: 17px;
+            z-index: 5;
+            display: flex;
+            gap: 8px;
+        }
+
+        .tool-button {
+            display: inline-flex;
+            width: 28px;
+            height: 28px;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: #8b929c;
+            cursor: pointer;
+        }
+
+        .tool-button:hover { background: var(--surface-soft); color: #4b5563; }
+        .tool-button svg { width: 16px; height: 16px; }
+
+        .landing {
+            display: flex;
+            min-height: 100%;
+            align-items: center;
+            justify-content: center;
+            padding: 34px 28px;
+        }
+
+        .landing-inner {
+            width: min(730px, 100%);
+            transform: translateY(-20px);
+        }
+
+        .landing h1 {
+            margin: 0 0 42px;
+            text-align: center;
+            color: #24262a;
+            font-size: clamp(24px, 3vw, 30px);
+            font-weight: 500;
+            letter-spacing: 0;
+        }
+
+        .composer {
+            width: 100%;
+        }
+
+        .composer-card {
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: #fff;
+            box-shadow: var(--shadow);
+        }
+
+        .input-area {
+            display: grid;
+            grid-template-columns: 1fr;
+            min-height: 78px;
+            padding: 14px 12px 0;
+        }
+
+        #inputBox {
+            width: 100%;
+            min-height: 46px;
+            max-height: 168px;
+            resize: none;
+            border: 0;
+            outline: 0;
+            background: transparent;
+            color: var(--text);
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        #inputBox::placeholder { color: #b1b6bd; }
+
+        .composer-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 8px 9px 10px;
+        }
+
+        .left-actions,
+        .right-actions {
+            display: flex;
+            min-width: 0;
+            align-items: center;
+            gap: 9px;
+        }
+
+        .icon-button {
+            display: inline-flex;
+            width: 30px;
+            height: 30px;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 9px;
+            background: transparent;
+            color: #8d949e;
+            cursor: pointer;
+        }
+
+        .icon-button:hover { background: var(--surface-soft); color: #5b626c; }
+        .icon-button svg { width: 18px; height: 18px; }
+
+        .access-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            border: 0;
+            background: transparent;
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        .model-select {
+            max-width: 132px;
+            border: 0;
+            background: transparent;
+            color: #4b5563;
+            font-size: 12px;
+            outline: 0;
+        }
+
+        .send-button {
+            display: inline-flex;
+            width: 32px;
+            height: 32px;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 999px;
+            background: #8f9399;
+            color: #fff;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.15s;
+        }
+
+        .send-button:hover { background: #686d75; }
+        .send-button:disabled { cursor: not-allowed; opacity: 0.7; }
+        .send-button svg { width: 18px; height: 18px; }
+
+        .composer-context {
+            display: flex;
+            min-height: 42px;
+            align-items: center;
+            gap: 18px;
+            border-radius: 0 0 20px 20px;
+            background: #f5f5f5;
+            padding: 8px 16px;
+            color: #6f7782;
+            font-size: 12px;
+        }
+
+        .context-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .context-item svg { width: 14px; height: 14px; }
+
+        .suggestions {
+            margin-top: 18px;
+            overflow: hidden;
+            border-top: 1px solid transparent;
+        }
+
+        .suggestion-row {
+            display: flex;
+            width: 100%;
+            align-items: center;
+            gap: 8px;
+            border: 0;
+            border-top: 1px solid var(--line);
+            background: transparent;
+            padding: 11px 13px;
+            color: #8b929c;
+            text-align: left;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .suggestion-row:hover { color: #58606b; background: #fafafa; }
+
+        .chat-panel {
+            display: none;
+            min-height: 0;
+            flex: 1;
+            overflow-y: auto;
+            padding: 78px 28px 180px;
+        }
+
+        .chat-inner {
+            width: min(850px, 100%);
+            margin: 0 auto;
+        }
+
+        body.chat-started .landing { display: none; }
+        body.chat-started .chat-panel { display: block; }
+        .composer-dock {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            z-index: 4;
+            width: min(730px, calc(100% - 56px));
+            transform: translate(-50%, -50%);
+            margin-top: 48px;
+        }
+
+        body.chat-started .composer-dock {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            top: auto;
+            z-index: 4;
+            width: auto;
+            transform: none;
+            margin-top: 0;
+            padding: 18px 28px 22px;
+            background: linear-gradient(to top, #fff 70%, rgba(255, 255, 255, 0));
+        }
+
+        body.chat-started .composer {
+            width: min(850px, 100%);
+            margin: 0 auto;
+        }
+
+        body.chat-started .suggestions { display: none; }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .avatar {
+            display: inline-flex;
+            width: 30px;
+            height: 30px;
+            flex: 0 0 auto;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: #eef2f7;
+            color: #5d6672;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .message.user .avatar { order: 2; background: #f1f4f8; }
+
+        .bubble {
+            max-width: min(680px, calc(100vw - 420px));
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #fff;
+            padding: 13px 15px;
+            color: #282d33;
+            font-size: 14px;
+            line-height: 1.75;
+            box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
+        }
+
+        .message.user .bubble {
+            border-color: #dfe6ef;
+            background: #f7f9fc;
+        }
+
+        .message.assistant .bubble {
+            border-color: transparent;
+            box-shadow: none;
+        }
+
+        .message-actions {
+            display: flex;
+            align-items: flex-start;
+            padding-top: 3px;
+        }
+
+        .copy-button {
+            display: inline-flex;
+            width: 26px;
+            height: 26px;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: #a1a8b0;
+            cursor: pointer;
+        }
+
+        .copy-button:hover { background: var(--surface-soft); color: #5e6670; }
+        .copy-button svg { width: 15px; height: 15px; }
+
+        .badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #f8fafc;
+            padding: 2px 8px;
+            color: #69717d;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .badge.safe { border-color: #ccebdc; background: #f0fbf6; color: #237a55; }
+        .badge.warn { border-color: #f7d9a6; background: #fff8eb; color: #956018; }
+        .badge.danger { border-color: #f5c2c7; background: #fff2f2; color: #b32635; }
+
+        .trace {
+            margin-top: 10px;
+            border-top: 1px solid var(--line);
+            padding-top: 8px;
+            color: #8a929c;
+            font-size: 12px;
+        }
+
+        .typing {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            min-width: 48px;
+        }
+
         .typing-dot {
             width: 6px;
             height: 6px;
             border-radius: 999px;
-            background: #64748b;
+            background: #7f8792;
             animation: typing-bounce 1.2s infinite;
         }
+
         .typing-dot:nth-child(2) { animation-delay: 0.16s; }
         .typing-dot:nth-child(3) { animation-delay: 0.32s; }
+
         @keyframes typing-bounce {
-            0%, 70%, 100% { transform: translateY(0); opacity: .45; }
+            0%, 70%, 100% { transform: translateY(0); opacity: 0.45; }
             35% { transform: translateY(-5px); opacity: 1; }
+        }
+
+        .toast {
+            pointer-events: none;
+            position: fixed;
+            left: 50%;
+            bottom: 88px;
+            z-index: 20;
+            transform: translateX(-50%) translateY(8px);
+            border: 1px solid #d7dce3;
+            border-radius: 10px;
+            background: #22262b;
+            padding: 9px 12px;
+            color: #fff;
+            font-size: 13px;
+            opacity: 0;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+            transition: opacity 0.18s, transform 0.18s;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .mobile-topbar {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--line);
+            padding: 10px 14px;
+        }
+
+        .mobile-title { font-size: 14px; font-weight: 650; }
+
+        @media (max-width: 980px) {
+            body { overflow: auto; }
+            .app-shell { display: block; height: 100vh; }
+            .sidebar { display: none; }
+            .mobile-topbar { display: flex; }
+            .workspace { height: 100vh; }
+            .workspace-tools { display: none; }
+            .landing { min-height: calc(100vh - 49px); padding: 22px 14px; }
+            .landing-inner { transform: none; }
+            .landing h1 { margin-bottom: 24px; font-size: 24px; }
+            .composer-context { flex-wrap: wrap; gap: 9px; }
+            .chat-panel { padding: 22px 14px 176px; }
+            .bubble { max-width: min(680px, calc(100vw - 74px)); }
+            body.chat-started .composer-dock { padding: 12px 14px 16px; }
+        }
+
+        @media (max-width: 560px) {
+            .composer-actions { align-items: flex-end; }
+            .right-actions { gap: 4px; }
+            .model-select { display: none; }
+            .access-chip span { display: none; }
+            .suggestions { margin-top: 12px; }
+            .suggestion-row { font-size: 12px; }
         }
     </style>
 </head>
-<body class="h-screen overflow-hidden bg-slate-100 text-slate-900">
-    <div
-        id="voiceUnavailableToast"
-        class="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 opacity-0 transition-opacity duration-200"
-        aria-live="polite"
-        aria-hidden="true"
-    >
-        <div class="rounded-md border border-slate-300 bg-slate-950 px-3 py-2 text-sm font-medium text-white shadow-lg">
-            当前麦克风无法使用
-        </div>
-    </div>
-    <!--
-      LangUI-derived MIT snippets adapted for this static Flask page:
-      public/components/components-prompt-containers/1.html
-      public/components/components-prompt-messages/2.html
-      public/components/components-prompt-message-inputs/1.html
-      public/components/components-prompt-suggestions/2.html
-      public/components/components-prompt-history-panels/1.html
-    -->
-    <div class="flex h-screen w-full">
-        <aside class="hidden w-80 shrink-0 border-r border-slate-300 bg-slate-50 p-3 lg:block">
-            <!-- Prompt history panel -->
-            <div class="flex h-full max-w-xl flex-col rounded-lg border border-slate-300 bg-slate-50 dark:border-slate-200/10 dark:bg-slate-900">
-                <div class="mx-2 mt-6">
-                    <button
-                        type="button"
-                        onclick="resetConversation()"
-                        class="flex w-full gap-x-4 rounded-lg border border-slate-300 p-4 text-left text-sm font-medium text-slate-700 transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-5 w-5"
-                            viewBox="0 0 24 24"
-                            stroke-width="2"
-                            stroke="currentColor"
-                            fill="none"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                        >
-                            <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                            <path d="M12 5l0 14"></path>
-                            <path d="M5 12l14 0"></path>
-                        </svg>
+<body>
+    <div id="voiceUnavailableToast" class="toast" aria-live="polite" aria-hidden="true">当前麦克风无法使用</div>
+
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="desktop-menu">
+                <span class="window-dot" aria-hidden="true"></span>
+                <button class="menu-arrow" type="button" aria-label="后退">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <button class="menu-arrow" type="button" aria-label="前进">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+                <span>文件</span>
+                <span>编辑</span>
+                <span>视图</span>
+                <span>帮助</span>
+            </div>
+
+            <div class="side-scroll">
+                <div class="nav-group">
+                    <button class="nav-button" type="button" onclick="resetConversation()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
                         新对话
                     </button>
+                    <button class="nav-button" type="button" onclick="inputBox.focus()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                        搜索
+                    </button>
+                    <a class="nav-button" href="/admin/rag-logs" style="text-decoration:none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 7h8M8 12h8M8 17h5"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
+                        已安排
+                    </a>
+                    <a class="nav-button" href="/forecast" style="text-decoration:none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19V5M4 19h16"/><path d="M8 15l3-3 3 2 5-7"/></svg>
+                        插件
+                    </a>
                 </div>
 
-                <div class="mx-2 mt-4 grid grid-cols-2 gap-2">
-                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
-                        <div class="text-lg font-semibold text-slate-800" id="metricChunks">--</div>
-                        <div class="mt-1 text-xs text-slate-500">知识块</div>
+                <div class="section-label">项目</div>
+                <button class="project-button active" type="button" onclick="resetConversation()">
+                    <span class="project-main">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 7h8M8 12h8M8 17h4"/><rect x="5" y="3" width="14" height="18" rx="2"/></svg>
+                        <span class="project-title">RAG试跑</span>
+                    </span>
+                    <span class="project-time">当前</span>
+                </button>
+                <span class="project-sub">药学咨询和多轮测试</span>
+
+                <a class="project-button" href="/forecast" style="text-decoration:none">
+                    <span class="project-main">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19h16M7 16V9M12 16V5M17 16v-4"/></svg>
+                        <span class="project-title">库存预测</span>
+                    </span>
+                    <span class="project-time">看板</span>
+                </a>
+                <span class="project-sub">SKU补货动作清单</span>
+
+                <a class="project-button" href="/store-forecast" style="text-decoration:none">
+                    <span class="project-main">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 10h16M6 10v9h12v-9"/><path d="M8 10V5h8v5"/></svg>
+                        <span class="project-title">门店预测</span>
+                    </span>
+                    <span class="project-time">门店级</span>
+                </a>
+                <span class="project-sub">门店-SKU销售预测</span>
+
+                <div class="metrics">
+                    <div class="metric">
+                        <div class="metric-value" id="metricChunks">--</div>
+                        <div class="metric-label">知识块</div>
                     </div>
-                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
-                        <div class="text-lg font-semibold text-slate-800" id="metricApis">--</div>
-                        <div class="mt-1 text-xs text-slate-500">API</div>
+                    <div class="metric">
+                        <div class="metric-value" id="metricApis">--</div>
+                        <div class="metric-label">API</div>
                     </div>
-                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
-                        <div class="text-lg font-semibold text-slate-800" id="metricTurns">0</div>
-                        <div class="mt-1 text-xs text-slate-500">轮对话</div>
+                    <div class="metric">
+                        <div class="metric-value" id="metricTurns">0</div>
+                        <div class="metric-label">轮对话</div>
                     </div>
-                    <div class="rounded-lg border border-slate-300 bg-slate-100 p-3">
-                        <div class="truncate text-lg font-semibold text-slate-800" id="metricTopic">--</div>
-                        <div class="mt-1 text-xs text-slate-500">当前主题</div>
+                    <div class="metric">
+                        <div class="metric-value" id="metricTopic">--</div>
+                        <div class="metric-label">当前主题</div>
                     </div>
                 </div>
 
-                <div class="mx-2 mt-5 text-xs font-medium uppercase tracking-wide text-slate-500">示例问题</div>
-                <div class="mx-2 mt-2 space-y-2">
-                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('依托度酸片怎么服用？')">
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">依托度酸片怎么服用？</span>
-                    </button>
-                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('有什么禁忌吗？饭后吃还是饭前吃？')">
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">有什么禁忌吗？饭后吃还是饭前吃？</span>
-                    </button>
-                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('和感康的作用相似吗？')">
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">和感康的作用相似吗？</span>
-                    </button>
-                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" onclick="askQuick('突然胸痛呼吸困难')">
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-200">突然胸痛呼吸困难</span>
-                    </button>
+                <div class="section-label">最近上下文</div>
+                <div class="history-list" id="contextStack">
+                    <div class="empty-history">暂无对话</div>
                 </div>
 
-                <div class="mx-2 mt-5 text-xs font-medium uppercase tracking-wide text-slate-500">最近上下文</div>
-                <div class="my-3 min-h-0 flex-1 space-y-3 overflow-y-auto px-2" id="contextStack">
-                    <div class="flex w-full flex-col gap-y-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-left text-sm text-slate-500">
-                        等待第一轮咨询
-                    </div>
-                </div>
+                <div class="section-label">快速入口</div>
+                <button class="project-button" type="button" onclick="askQuick('我忘记之前做到什么地步了，怎么办？')">
+                    <span class="project-main">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+                        <span class="project-title">继续上次试跑</span>
+                    </span>
+                </button>
+                <button class="project-button" type="button" onclick="askQuick('根据知识库，眼睛干涩可以用什么？')">
+                    <span class="project-main">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <span class="project-title">药学问题样例</span>
+                    </span>
+                </button>
+            </div>
 
-                <div class="mx-2 mb-3 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-500">
-                    仅提供药学信息参考。处方药、急重症、儿童孕产等敏感场景请咨询医生或执业药师。
+            <div class="sidebar-footer">
+                <span class="settings-dot">设</span>
+                <div>
+                    <div class="settings-title">设置</div>
+                    <div class="settings-sub" id="statusBar">初始化中</div>
                 </div>
             </div>
         </aside>
 
-        <!-- Prompt Messages Container - height follows viewport -->
-        <main class="flex h-screen min-w-0 flex-1 flex-col">
-            <header class="flex min-h-16 items-center justify-between border-b border-slate-300 bg-slate-50 px-4 py-3 sm:px-6">
-                <div class="min-w-0">
-                    <h1 class="truncate text-base font-semibold text-slate-800">药业智能咨询助手</h1>
-                    <p class="mt-1 truncate text-xs text-slate-500" id="topbarHint">服务正在连接</p>
-                </div>
-                <div class="inline-flex items-center gap-x-2 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600">
-                    <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                    <span id="statusBar">初始化中</span>
-                </div>
-            </header>
+        <main class="workspace">
+            <div class="mobile-topbar">
+                <span class="mobile-title">RAG试跑</span>
+                <button class="tool-button" type="button" onclick="resetConversation()" aria-label="新对话">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+            </div>
 
-            <!-- Prompt Messages -->
-            <section
-                id="chatContainer"
-                class="flex-1 space-y-6 overflow-y-auto bg-slate-200 p-4 text-sm leading-6 text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-300 sm:p-6 sm:text-base sm:leading-7"
-            >
-                <div class="mx-auto flex w-full max-w-4xl flex-col gap-6" id="chatInner">
-                    <div class="flex items-start">
-                        <img
-                            class="mr-2 h-8 w-8 rounded-full"
-                            src="https://dummyimage.com/128x128/354ea1/ffffff&text=AI"
-                            alt="AI"
-                        />
-                        <div class="flex min-h-[85px] rounded-b-xl rounded-tr-xl bg-slate-50 p-4 shadow-sm dark:bg-slate-800 sm:min-h-0 sm:max-w-md md:max-w-2xl">
-                            <div class="space-y-3">
-                                <p>您好，我是药业智能咨询助手。您可以问药品用法、禁忌、不良反应，也可以继续追问上一轮提到的药品。</p>
-                                <p>如果知识库依据不足，我会直接说明，不会硬编。</p>
-                            </div>
-                        </div>
-                        <div class="ml-2 mt-1 flex flex-col-reverse gap-2 text-slate-500 sm:flex-row">
-                            <button class="hover:text-blue-600" type="button" title="复制">
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    class="h-5 w-5"
-                                    viewBox="0 0 24 24"
-                                    stroke-width="2"
-                                    stroke="currentColor"
-                                    fill="none"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                >
-                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                                    <path d="M8 8m0 2a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2z"></path>
-                                    <path d="M16 8v-2a2 2 0 0 0 -2 -2h-8a2 2 0 0 0 -2 2v8a2 2 0 0 0 2 2h2"></path>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
+            <div class="workspace-tools" aria-label="页面工具">
+                <button class="tool-button" type="button" title="RAG测试管理" onclick="location.href='/admin/rag-logs'">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+                </button>
+                <button class="tool-button" type="button" title="库存预测" onclick="location.href='/forecast'">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19V5M4 19h16M8 15l3-3 3 2 5-7"/></svg>
+                </button>
+            </div>
+
+            <section class="landing" id="landing">
+                <div class="landing-inner">
+                    <h1>我们应该在 RAG试跑 中构建什么？</h1>
                 </div>
             </section>
 
-            <footer class="border-t border-slate-300 bg-slate-50 px-4 py-3 sm:px-6">
-                <div class="mx-auto w-full max-w-4xl">
-                    <!-- Suggestions pannel above input -->
-                    <div class="flex w-full gap-x-2 overflow-x-auto whitespace-nowrap text-xs text-slate-600 dark:text-slate-300 sm:text-sm">
-                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('能对话几轮')">
-                            能对话几轮
-                        </button>
-                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('小孩能吃吗？')">
-                            小孩能吃吗？
-                        </button>
-                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('布洛芬缓释胶囊有什么不良反应？')">
-                            布洛芬副作用
-                        </button>
-                        <button class="rounded-lg bg-slate-200 p-2 hover:bg-blue-600 hover:text-slate-200 dark:bg-slate-800 dark:hover:bg-blue-600 dark:hover:text-slate-50" type="button" onclick="askQuick('一个完全不存在的药ABC怎么吃？')">
-                            兜底测试
-                        </button>
-                    </div>
+            <section class="chat-panel" id="chatContainer" aria-live="polite">
+                <div class="chat-inner" id="chatInner"></div>
+            </section>
 
-                    <!-- Prompt message input -->
-                    <form
-                        id="promptForm"
-                        class="mt-2 flex w-full items-center rounded-md bg-slate-200 p-2 dark:bg-slate-900"
-                    >
-                        <label for="inputBox" class="sr-only">Enter your prompt</label>
-                        <div>
-                            <button
-                                class="hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-600 sm:p-2"
-                                type="button"
-                                title="补充说明"
-                            >
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    class="h-6 w-6"
-                                    aria-hidden="true"
-                                    viewBox="0 0 24 24"
-                                    stroke-width="2"
-                                    stroke="currentColor"
-                                    fill="none"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                >
-                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                                    <path d="M12 5l0 14"></path>
-                                    <path d="M5 12l14 0"></path>
-                                </svg>
-                                <span class="sr-only">Add</span>
-                            </button>
+            <div class="composer-dock" id="composerDock">
+                <form class="composer" id="promptForm">
+                    <div class="composer-card">
+                        <div class="input-area">
+                            <label for="inputBox" style="position:absolute;left:-9999px">输入问题</label>
+                            <textarea id="inputBox" rows="1" placeholder="随心输入"></textarea>
                         </div>
-                        <textarea
-                            id="inputBox"
-                            rows="1"
-                            class="mx-2 flex min-h-full w-full resize-none rounded-md border border-slate-300 bg-slate-200 p-2 text-base text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600 dark:border-slate-300/20 dark:bg-slate-800 dark:text-slate-200 dark:placeholder-slate-400 dark:focus:border-blue-600 dark:focus:ring-blue-600"
-                            placeholder="输入药品、症状或继续追问..."
-                        ></textarea>
-                        <div>
-                            <button
-                                id="micBtn"
-                                class="inline-flex h-10 w-10 items-center justify-center rounded-md text-slate-600 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600 dark:text-slate-200 dark:hover:text-blue-600"
-                                type="button"
-                                title="语音输入"
-                                aria-label="语音输入"
-                            >
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    class="h-6 w-6"
-                                    aria-hidden="true"
-                                    viewBox="0 0 24 24"
-                                    stroke-width="2"
-                                    stroke="currentColor"
-                                    fill="none"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                >
-                                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                                    <path d="M9 5a3 3 0 0 1 6 0v5a3 3 0 0 1 -6 0z"></path>
-                                    <path d="M5 10a7 7 0 0 0 14 0"></path>
-                                    <path d="M8 21h8"></path>
-                                    <path d="M12 17v4"></path>
-                                </svg>
-                            </button>
+                        <div class="composer-actions">
+                            <div class="left-actions">
+                                <button class="icon-button" type="button" title="补充说明" aria-label="补充说明">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
+                                </button>
+                                <button class="access-chip" type="button" title="访问范围">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+                                    <span>完全访问</span>
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"><path d="M6 9l6 6 6-6"/></svg>
+                                </button>
+                            </div>
+                            <div class="right-actions">
+                                <select class="model-select" aria-label="模型">
+                                    <option>GLM-5.2</option>
+                                    <option>MiMo v2.5</option>
+                                    <option>本地模式</option>
+                                </select>
+                                <button id="micBtn" class="icon-button" type="button" title="语音输入" aria-label="语音输入">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 5a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></svg>
+                                </button>
+                                <button id="sendBtn" class="send-button" type="submit" title="发送" aria-label="发送">
+                                    <span id="sendIdle">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                                    </span>
+                                    <span id="sendBusy" class="typing" style="display:none">
+                                        <span class="typing-dot"></span>
+                                        <span class="typing-dot"></span>
+                                        <span class="typing-dot"></span>
+                                    </span>
+                                </button>
+                            </div>
                         </div>
-                        <div>
-                            <button
-                                id="sendBtn"
-                                class="inline-flex hover:text-blue-600 disabled:text-slate-400 dark:text-slate-200 dark:hover:text-blue-600 sm:p-2"
-                                type="submit"
-                                title="发送"
-                            >
-                                <span id="sendIdle">
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        class="h-6 w-6"
-                                        aria-hidden="true"
-                                        viewBox="0 0 24 24"
-                                        stroke-width="2"
-                                        stroke="currentColor"
-                                        fill="none"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                    >
-                                        <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                                        <path d="M10 14l11 -11"></path>
-                                        <path d="M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"></path>
-                                    </svg>
-                                </span>
-                                <span id="sendBusy" class="hidden items-center gap-1">
-                                    <span class="typing-dot"></span>
-                                    <span class="typing-dot"></span>
-                                    <span class="typing-dot"></span>
-                                </span>
-                                <span class="sr-only">Send message</span>
-                            </button>
+                        <div class="composer-context">
+                            <span class="context-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M8 9h8M8 13h8"/></svg>
+                                RAG试跑
+                            </span>
+                            <span class="context-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 5h18v13H3z"/><path d="M8 21h8"/></svg>
+                                本地模式
+                            </span>
+                            <span class="context-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><path d="M18 3v6"/><circle cx="18" cy="12" r="3"/></svg>
+                                main
+                            </span>
+                            <span class="context-item" id="topbarHint">服务正在连接</span>
                         </div>
-                    </form>
+                    </div>
+                </form>
+                <div class="suggestions">
+                    <button class="suggestion-row" type="button" onclick="askQuick('Fix the answer when the knowledge base is incomplete')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 12h8M12 8v8"/><rect x="4" y="4" width="16" height="16" rx="4"/></svg>
+                        Fix the answer when the knowledge base is incomplete
+                    </button>
+                    <button class="suggestion-row" type="button" onclick="askQuick('Surface forecast lineage warnings in the admin page')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19h16M7 16V9M12 16V5M17 16v-4"/></svg>
+                        Surface forecast lineage warnings in the admin page
+                    </button>
+                    <button class="suggestion-row" type="button" onclick="askQuick('将你常用的应用连接到 Codex')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10 13a5 5 0 0 0 7.54.54l2-2a5 5 0 0 0-7.07-7.07l-1.14 1.14"/><path d="M14 11a5 5 0 0 0-7.54-.54l-2 2a5 5 0 0 0 7.07 7.07l1.14-1.14"/></svg>
+                        将你常用的应用连接到 Codex
+                    </button>
                 </div>
-            </footer>
+            </div>
         </main>
     </div>
 
@@ -318,11 +926,12 @@
         const metricTopic = document.getElementById('metricTopic');
 
         let chatHistory = [];
+        let totalTurns = 0;
         let voiceToastTimer = null;
 
         inputBox.addEventListener('input', () => {
             inputBox.style.height = 'auto';
-            inputBox.style.height = Math.min(inputBox.scrollHeight, 150) + 'px';
+            inputBox.style.height = Math.min(inputBox.scrollHeight, 168) + 'px';
         });
 
         inputBox.addEventListener('keydown', (event) => {
@@ -337,9 +946,7 @@
             sendQuestion();
         });
 
-        micBtn.addEventListener('click', () => {
-            showVoiceUnavailable();
-        });
+        micBtn.addEventListener('click', showVoiceUnavailable);
 
         contextStack.addEventListener('click', (event) => {
             const item = event.target.closest('[data-question]');
@@ -355,8 +962,11 @@
 
         function resetConversation() {
             chatHistory = [];
+            totalTurns = 0;
             chatInner.innerHTML = '';
-            addMessage('bot', '您好，我是药业智能咨询助手。您可以问药品用法、禁忌、不良反应，也可以继续追问上一轮提到的药品。\n\n如果知识库依据不足，我会直接说明，不会硬编。');
+            document.body.classList.remove('chat-started');
+            inputBox.value = '';
+            inputBox.style.height = 'auto';
             updateContext();
             statusBar.textContent = '服务就绪';
             topbarHint.textContent = '已开启新对话';
@@ -374,15 +984,15 @@
 
         function formatText(text) {
             return escapeHtml(text)
-                .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-slate-950">$1</strong>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
                 .replace(/(^|\n)\s*[-*]\s+/g, '$1• ')
                 .replace(/\n/g, '<br>');
         }
 
         function triageClass(level) {
-            if (level === '急症' || level === '重症') return 'border-red-200 bg-red-50 text-red-700';
-            if (level === '中症') return 'border-amber-200 bg-amber-50 text-amber-700';
-            return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+            if (level === '急症' || level === '重症') return 'danger';
+            if (level === '中症') return 'warn';
+            return 'safe';
         }
 
         function scrollToBottom() {
@@ -391,23 +1001,20 @@
 
         function showVoiceUnavailable() {
             statusBar.textContent = '麦克风不可用';
-            voiceUnavailableToast.classList.remove('opacity-0');
-            voiceUnavailableToast.classList.add('opacity-100');
+            voiceUnavailableToast.classList.add('show');
             voiceUnavailableToast.setAttribute('aria-hidden', 'false');
 
             window.clearTimeout(voiceToastTimer);
             voiceToastTimer = window.setTimeout(() => {
-                voiceUnavailableToast.classList.remove('opacity-100');
-                voiceUnavailableToast.classList.add('opacity-0');
+                voiceUnavailableToast.classList.remove('show');
                 voiceUnavailableToast.setAttribute('aria-hidden', 'true');
             }, 2200);
         }
 
         function setBusy(isBusy) {
             sendBtn.disabled = isBusy;
-            sendIdle.classList.toggle('hidden', isBusy);
-            sendBusy.classList.toggle('hidden', !isBusy);
-            sendBusy.classList.toggle('inline-flex', isBusy);
+            sendIdle.style.display = isBusy ? 'none' : 'inline-flex';
+            sendBusy.style.display = isBusy ? 'inline-flex' : 'none';
             if (isBusy) {
                 statusBar.textContent = '生成中';
             } else if (statusBar.textContent === '生成中' || statusBar.textContent === '初始化中') {
@@ -424,95 +1031,86 @@
             });
         }
 
-        function assistantActions(text) {
+        function assistantActions(textGetter) {
             const actions = document.createElement('div');
-            actions.className = 'ml-2 mt-1 flex flex-col-reverse gap-2 text-slate-500 sm:flex-row';
+            actions.className = 'message-actions';
             const copyBtn = document.createElement('button');
-            copyBtn.className = 'hover:text-blue-600';
+            copyBtn.className = 'copy-button';
             copyBtn.type = 'button';
             copyBtn.title = '复制';
-            copyBtn.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                    <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                    <path d="M8 8m0 2a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2z"></path>
-                    <path d="M16 8v-2a2 2 0 0 0 -2 -2h-8a2 2 0 0 0 -2 2v8a2 2 0 0 0 2 2h2"></path>
-                </svg>
-            `;
-            copyBtn.addEventListener('click', () => copyText(text()));
+            copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+            copyBtn.addEventListener('click', () => copyText(textGetter()));
             actions.appendChild(copyBtn);
             return actions;
         }
 
         function addMessage(role, text, extra = {}) {
+            document.body.classList.add('chat-started');
             const isUser = role === 'user';
             const wrap = document.createElement('div');
-            wrap.className = isUser ? 'flex flex-row-reverse items-start' : 'flex items-start';
+            wrap.className = `message ${isUser ? 'user' : 'assistant'}`;
 
-            const avatar = document.createElement('img');
-            avatar.className = isUser ? 'ml-2 h-8 w-8 rounded-full' : 'mr-2 h-8 w-8 rounded-full';
-            avatar.src = isUser
-                ? 'https://dummyimage.com/128x128/363536/ffffff&text=U'
-                : 'https://dummyimage.com/128x128/354ea1/ffffff&text=AI';
-            avatar.alt = isUser ? '用户' : 'AI';
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            avatar.textContent = isUser ? 'U' : 'AI';
 
             const bubble = document.createElement('div');
-            bubble.className = isUser
-                ? 'flex rounded-b-xl rounded-tl-xl bg-blue-50 p-4 shadow-sm dark:bg-slate-800 sm:max-w-md md:max-w-2xl'
-                : 'flex min-h-[85px] rounded-b-xl rounded-tr-xl bg-slate-50 p-4 shadow-sm dark:bg-slate-800 sm:min-h-0 sm:max-w-md md:max-w-2xl';
+            bubble.className = 'bubble';
             bubble.innerHTML = buildBubbleHtml(text, extra);
+            bubble.dataset.rawText = text || '';
 
             wrap.appendChild(avatar);
             wrap.appendChild(bubble);
-            if (!isUser) {
-                wrap.appendChild(assistantActions(() => bubble.dataset.rawText || text || ''));
-            }
-            bubble.dataset.rawText = text || '';
+            if (!isUser) wrap.appendChild(assistantActions(() => bubble.dataset.rawText || text || ''));
             chatInner.appendChild(wrap);
             scrollToBottom();
             return { wrap, bubble };
         }
 
         function buildBubbleHtml(text, extra = {}) {
-            let html = '<div class="w-full space-y-3">';
+            let html = '<div>';
             const badges = [];
             if (extra.triage && extra.triage.level) {
                 const level = extra.triage.level;
-                badges.push(`<span class="inline-flex rounded-full border px-2 py-0.5 text-xs ${triageClass(level)}">分诊：${escapeHtml(level)}</span>`);
+                badges.push(`<span class="badge ${triageClass(level)}">分诊：${escapeHtml(level)}</span>`);
             }
             if (extra.retrieved && extra.retrieved.length > 0) {
-                badges.push(`<span class="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs text-slate-500">检索：${extra.retrieved.length}条</span>`);
+                badges.push(`<span class="badge">检索：${extra.retrieved.length}条</span>`);
             }
             if (extra.issues && extra.issues.length > 0) {
-                badges.push('<span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">需复核</span>');
+                badges.push('<span class="badge warn">需复核</span>');
             }
-            if (badges.length) html += `<div class="flex flex-wrap gap-1.5">${badges.join('')}</div>`;
+            if (badges.length) html += `<div class="badges">${badges.join('')}</div>`;
             html += text
-                ? `<p>${formatText(text)}</p>`
-                : '<span class="inline-flex items-center gap-1"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>';
+                ? `<div>${formatText(text)}</div>`
+                : '<span class="typing"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span>';
             if (extra.steps && extra.steps.length > 0) {
-                html += `<div class="border-t border-slate-200 pt-2 text-xs leading-5 text-slate-500">${escapeHtml(extra.steps.join(' -> '))}</div>`;
+                html += `<div class="trace">${escapeHtml(extra.steps.join(' -> '))}</div>`;
             }
             html += '</div>';
             return html;
         }
 
         function updateContext() {
-            metricTurns.textContent = String(chatHistory.length);
+            metricTurns.textContent = String(totalTurns);
             const last = chatHistory[chatHistory.length - 1];
             if (!last) {
                 metricTopic.textContent = '--';
-                contextStack.innerHTML = '<div class="flex w-full flex-col gap-y-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-left text-sm text-slate-500">等待第一轮咨询</div>';
+                contextStack.innerHTML = '<div class="empty-history">暂无对话</div>';
                 return;
             }
             const topic = extractTopic(last.question);
             metricTopic.textContent = topic || '追问';
             const items = chatHistory.slice(-5).reverse().map((item, index) => {
-                const q = escapeHtml(item.question.length > 44 ? item.question.slice(0, 44) + '...' : item.question);
-                const turn = chatHistory.length - index;
+                const q = escapeHtml(item.question.length > 42 ? item.question.slice(0, 42) + '...' : item.question);
+                const turn = totalTurns - index;
                 return `
-                    <button class="flex w-full flex-col gap-y-2 rounded-lg px-3 py-2 text-left transition-colors duration-200 hover:bg-slate-200 focus:outline-none dark:hover:bg-slate-800" type="button" data-question="${escapeHtml(item.question)}">
-                        <h2 class="text-sm font-medium text-slate-700 dark:text-slate-200">${q}</h2>
-                        <p class="text-xs text-slate-500 dark:text-slate-400">第 ${turn} 轮</p>
+                    <button class="history-button" type="button" data-question="${escapeHtml(item.question)}">
+                        <span class="history-top">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
+                            <span class="history-title">${q}</span>
+                        </span>
+                        <span class="history-meta">第 ${turn} 轮</span>
                     </button>
                 `;
             });
@@ -521,7 +1119,7 @@
 
         function extractTopic(text) {
             const cleaned = String(text || '')
-                .replace(/怎么吃|怎么服用|有什么|不良反应|副作用|禁忌|注意事项|饭前|饭后|能吃吗|可以用吗|作用|相似|区别|吗|呢|的/g, '')
+                .replace(/怎么吃|怎么服用|有什么|不良反应|副作用|禁忌|注意事项|饭前|饭后|能吃吗|可以用吗|作用|相似|区别|吗|呢/g, '')
                 .replace(/[，。！？、,.!?]/g, ' ')
                 .trim();
             const match = cleaned.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,12}/);
@@ -538,7 +1136,7 @@
             setBusy(true);
             topbarHint.textContent = '正在处理本轮咨询';
 
-            const assistant = addMessage('bot', '', {});
+            const assistant = addMessage('assistant', '', {});
             let answerText = '';
             let latestMeta = {};
 
@@ -597,6 +1195,7 @@
                             if (!answerText && latestMeta.answer) answerText = latestMeta.answer;
                             renderAssistant();
                             chatHistory.push({ question: latestMeta.question || question, answer: latestMeta.answer || answerText });
+                            totalTurns += 1;
                             if (chatHistory.length > 5) chatHistory.shift();
                             updateContext();
                             statusBar.textContent = (latestMeta.issues && latestMeta.issues.length) ? '已标记复核' : '处理完成';
@@ -618,6 +1217,7 @@
                     answerText = latestMeta.answer || answerText || '抱歉，这次没有拿到有效回答，请稍后再试。';
                     renderAssistant();
                     chatHistory.push({ question: latestMeta.question || question, answer: answerText });
+                    totalTurns += 1;
                     if (chatHistory.length > 5) chatHistory.shift();
                     updateContext();
                     statusBar.textContent = '已用普通模式完成';
@@ -640,13 +1240,9 @@
                 cache: 'no-store',
                 body: JSON.stringify({ question, history })
             });
-            if (!resp.ok) {
-                throw new Error(`HTTP ${resp.status}`);
-            }
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
-            if (!data.success || !data.result) {
-                throw new Error(data.error || '普通问答失败');
-            }
+            if (!data.success || !data.result) throw new Error(data.error || '普通问答失败');
             return data.result;
         }
 
