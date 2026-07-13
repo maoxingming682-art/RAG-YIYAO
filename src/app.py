@@ -1887,7 +1887,7 @@ def process_question(question, history=None):
             # 不在预设里的闲聊，用简单模板
             reply = "您好！我是药业智能咨询助手，可以为您解答药品用法用量、不良反应等问题。请问有什么可以帮您的？"
         result["answer"] = reply
-        result["steps"].append("闲聊处理：本地秒回")
+        result["steps"].append("闲聊处理：本地回复")
         result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
         audit_log(masked, reply, "闲聊", [], retrieved=result["retrieved"], steps=result["steps"])
         return result
@@ -2316,6 +2316,26 @@ def api_ask_stream():
     def sse(obj):
         return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
+    def stream_text_chunks(text, max_chars=12):
+        buf = ""
+        for ch in text:
+            buf += ch
+            if len(buf) >= max_chars or ch in "。！？；\n":
+                yield buf
+                buf = ""
+        if buf:
+            yield buf
+
+    def stream_answer_events(result, answer):
+        result["answer"] = answer
+        meta_result = dict(result)
+        meta_result["answer"] = ""
+        yield sse({"type": "meta", "result": meta_result})
+        for chunk in stream_text_chunks(answer):
+            yield sse({"type": "chunk", "text": chunk})
+            time.sleep(0.035)
+        yield sse({"type": "done", "result": result})
+
     def generate():
         try:
             # === 前置阶段：复用 process_question 逻辑到生成前 ===
@@ -2331,12 +2351,11 @@ def api_ask_stream():
                 choice_result = complete_numeric_choice(current_question, history, context, choice_info)
                 if choice_result.get("action") == "clarify":
                     answer = choice_result.get("reply") or "可以，请再补充一点具体信息，我再帮您查。"
-                    result["answer"] = answer
                     result["triage"] = {"level": "澄清", "recommend_drugs": False, "needs_doctor": False}
                     result["steps"].append("选项补全：需要继续澄清")
                     result["question"] = f"选择第{choice_info['number']}项：{choice_info['option']}"
-                    yield sse({"type": "meta", "result": result})
-                    yield sse({"type": "done", "result": result})
+                    for event in stream_answer_events(result, answer):
+                        yield event
                     audit_log(result["question"], answer, "澄清", [], retrieved=result["retrieved"], steps=result["steps"])
                     return
                 rewritten = choice_result.get("question")
@@ -2373,10 +2392,9 @@ def api_ask_stream():
             # 急症/重症：用18_safety_layer的apply_safety统一处理（分级免责+red_flags完整版）
             if level in ("急症", "重症") or triage.get("action") in ("immediate_medical", "see_doctor_soon"):
                 answer = safety_mod.apply_safety(masked, "", [], triage)
-                result["answer"] = answer
                 result["steps"].append("已拦截：引导就医（safety_layer）")
-                yield sse({"type": "meta", "result": result})
-                yield sse({"type": "done"})
+                for event in stream_answer_events(result, answer):
+                    yield event
                 audit_log(masked, answer, level, [], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
@@ -2384,11 +2402,10 @@ def api_ask_stream():
             cleaned = re.sub(r'[\s\W_]+', '', masked)
             if not choice_info and (len(cleaned) < 2 or cleaned.isdigit() or len(masked.strip()) < 2):
                 answer = "您的问题似乎不太完整，能再详细描述一下吗？比如您的症状或想了解的药品名称。"
-                result["answer"] = answer
                 result["steps"].append("无效输入：过短/纯数字")
                 result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
-                yield sse({"type": "meta", "result": result})
-                yield sse({"type": "done"})
+                for event in stream_answer_events(result, answer):
+                    yield event
                 audit_log(masked, answer, "闲聊", ["无效输入"], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
@@ -2415,11 +2432,10 @@ def api_ask_stream():
                     "能追问吗":"可以追问。比如先问“布洛芬有什么不良反应”，再问“饭后吃会不会好一点”，我会尽量带着上文理解。",
                 }
                 reply = chitchat_replies.get(lower_q, "您好！我是药业智能咨询助手，可以为您解答药品用法用量、不良反应等问题。请问有什么可以帮您的？")
-                result["answer"] = reply
-                result["steps"].append("闲聊处理：本地秒回")
+                result["steps"].append("闲聊处理：流式本地回复")
                 result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
-                yield sse({"type": "meta", "result": result})
-                yield sse({"type": "done"})
+                for event in stream_answer_events(result, reply):
+                    yield event
                 audit_log(masked, reply, "闲聊", [], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
@@ -2448,10 +2464,9 @@ def api_ask_stream():
             # 超纲：用18_safety_layer的build_out_of_scope_reply（含药品名提取+分级免责）
             if max_sim < 0.65 or not evidence_ok:
                 answer = build_knowledge_gap_reply(masked, max_sim, context)
-                result["answer"] = answer
                 result["steps"].append("超纲兜底：知识库未收录")
-                yield sse({"type": "meta", "result": result})
-                yield sse({"type": "done"})
+                for event in stream_answer_events(result, answer):
+                    yield event
                 audit_log(masked, answer, level, ["超纲"], retrieved=result["retrieved"], steps=result["steps"])
                 return
 
@@ -2547,11 +2562,15 @@ def api_ask_stream():
                     raw = local_generate(masked, knowledge_text, max_new_tokens=400)
                     raw = strip_opening_chitchat(raw, has_history=bool(history))
                     full_answer += raw
-                    yield sse({"type": "chunk", "text": raw})
+                    for raw_chunk in stream_text_chunks(raw):
+                        yield sse({"type": "chunk", "text": raw_chunk})
+                        time.sleep(0.035)
                 except Exception:
                     err_msg = "抱歉，服务暂时不可用，请稍后重试。"
                     full_answer += err_msg
-                    yield sse({"type": "chunk", "text": err_msg})
+                    for err_chunk in stream_text_chunks(err_msg):
+                        yield sse({"type": "chunk", "text": err_chunk})
+                        time.sleep(0.035)
 
             # 禁用词检测+自动修复
             full_answer = strip_opening_chitchat(full_answer, has_history=bool(history))
@@ -2572,7 +2591,9 @@ def api_ask_stream():
             else:
                 disclaimer = safety_mod.DISCLAIMER_TEMPLATES["drug_info"]
             full_answer += disclaimer
-            yield sse({"type": "chunk", "text": disclaimer})
+            for disclaimer_chunk in stream_text_chunks(disclaimer):
+                yield sse({"type": "chunk", "text": disclaimer_chunk})
+                time.sleep(0.02)
 
             result["answer"] = full_answer
             yield sse({"type": "done", "result": result})
