@@ -2632,6 +2632,147 @@ def _load_transformer():
     return _TRANSFORMER_DATA
 
 
+def _forecast_num(value, default=0.0):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _forecast_decision(item):
+    """Turn model output into a small, explainable business action."""
+    mape = _forecast_num(item.get("mape"), 999.0)
+    total_forecast = int(round(_forecast_num(item.get("total_forecast_30days"))))
+    avg_daily = _forecast_num(item.get("avg_daily"))
+    recommended_stock = int(round(_forecast_num(item.get("recommended_stock"))))
+    safety_stock = int(round(_forecast_num(item.get("safety_stock"), max(recommended_stock - total_forecast, 0))))
+    drift_ratio = round(_forecast_num(item.get("drift_ratio")), 1)
+    is_drift = bool(item.get("is_drift"))
+    safety_days = round(safety_stock / avg_daily, 1) if avg_daily > 0 else 0
+
+    if mape < 15:
+        confidence_label = "高"
+        confidence_score = 0.9
+    elif mape < 25:
+        confidence_label = "中"
+        confidence_score = 0.75
+    elif mape < 35:
+        confidence_label = "偏低"
+        confidence_score = 0.55
+    else:
+        confidence_label = "低"
+        confidence_score = 0.35
+
+    risk_flags = []
+    if mape >= 35:
+        risk_flags.append("误差高")
+    elif mape >= 25:
+        risk_flags.append("误差偏高")
+    if is_drift and drift_ratio >= 20:
+        risk_flags.append("销量上升")
+    elif is_drift and drift_ratio <= -20:
+        risk_flags.append("销量下降")
+    if total_forecast >= 1000 or recommended_stock >= 1200 or avg_daily >= 30:
+        risk_flags.append("高需求")
+    if avg_daily and avg_daily < 3:
+        risk_flags.append("低动销")
+
+    if mape >= 35:
+        action = "review"
+        action_label = "人工复核"
+        action_class = "review"
+    elif mape >= 25 or (is_drift and drift_ratio <= -20):
+        action = "cautious_restock"
+        action_label = "谨慎备货"
+        action_class = "caution"
+    elif (is_drift and drift_ratio >= 20) or total_forecast >= 1000 or recommended_stock >= 1200 or avg_daily >= 30:
+        action = "urgent_restock"
+        action_label = "立即补货"
+        action_class = "urgent"
+    else:
+        action = "normal_restock"
+        action_label = "正常备货"
+        action_class = "normal"
+
+    drift_text = "近期销量相对稳定"
+    if is_drift:
+        direction = "上升" if drift_ratio >= 0 else "下降"
+        drift_text = f"最近销量较基线{direction}{abs(drift_ratio):.1f}%"
+
+    accuracy_text = "预测误差较低" if mape < 15 else "预测误差可接受" if mape < 25 else "预测误差偏高"
+    reason = (
+        f"未来30天预计{total_forecast:,}盒，建议库存{recommended_stock:,}盒；"
+        f"安全库存约{safety_stock:,}盒（约{safety_days:g}天）。"
+        f"{drift_text}，{accuracy_text}。"
+    )
+
+    return {
+        "action": action,
+        "action_label": action_label,
+        "action_class": action_class,
+        "confidence": confidence_score,
+        "confidence_label": confidence_label,
+        "decision_reason": reason,
+        "risk_flags": risk_flags,
+        "safety_stock": safety_stock,
+        "safety_days": safety_days,
+    }
+
+
+def _forecast_decision_summary(items):
+    action_meta = {
+        "urgent_restock": {
+            "label": "立即补货",
+            "class": "urgent",
+            "description": "高需求或销量明显上升，优先进入采购/调拨清单。",
+        },
+        "normal_restock": {
+            "label": "正常备货",
+            "class": "normal",
+            "description": "需求稳定且误差可控，按预测目标库存补齐。",
+        },
+        "cautious_restock": {
+            "label": "谨慎备货",
+            "class": "caution",
+            "description": "销量下降或误差偏高，先小批量补货并观察。",
+        },
+        "review": {
+            "label": "人工复核",
+            "class": "review",
+            "description": "预测误差高，需要结合活动、断货、异常订单复核。",
+        },
+    }
+    counts = {action: 0 for action in action_meta}
+    confidence_counts = {"高": 0, "中": 0, "偏低": 0, "低": 0}
+    for item in items:
+        decision = _forecast_decision(item)
+        counts[decision["action"]] = counts.get(decision["action"], 0) + 1
+        confidence_counts[decision["confidence_label"]] = confidence_counts.get(decision["confidence_label"], 0) + 1
+
+    total = max(len(items), 1)
+    actions = []
+    for action, meta in action_meta.items():
+        count = counts.get(action, 0)
+        actions.append({
+            "action": action,
+            "label": meta["label"],
+            "class": meta["class"],
+            "description": meta["description"],
+            "count": count,
+            "pct": round(count / total * 100, 1),
+        })
+
+    return {
+        "formula": "建议库存 = 未来30天预测销量 + 约7天安全库存",
+        "operation_note": "真实补货量 = 目标库存 - 当前库存 - 在途库存；当前聚合Demo未接实时库存，所以这里展示目标库存。",
+        "model_note": "预测数来自时间序列/回归模型，AI只负责把数字翻译成经营建议。",
+        "actions": actions,
+        "confidence_counts": confidence_counts,
+    }
+
+
 def _load_store_forecast():
     """Load store-SKU simulation assets lazily."""
     global _STORE_FORECAST
@@ -3102,6 +3243,7 @@ def api_forecast_overview():
     drift_items.sort(key=lambda x: -abs(x.get("drift_ratio", 0)))
     top_drift = [{"drug_name": v["drug_name"], "category": v["category"],
                   "drift_ratio": v["drift_ratio"], "mape": v["mape"]} for v in drift_items[:10]]
+    decision_summary = _forecast_decision_summary(valid)
 
     return jsonify({
         "success": True,
@@ -3116,6 +3258,7 @@ def api_forecast_overview():
             "category_stats": cat_stats,
             "top_restock": top_restock,
             "top_drift": top_drift,
+            "decision_summary": decision_summary,
             "dataset": dataset,
             "data_info": {"5000": "1年/5000商品", "9000": "2年/9000商品"}.get(dataset, dataset),
         }
@@ -3215,20 +3358,24 @@ def api_forecast_products():
     page_items = items[start:end]
 
     # 精简字段（列表不需要历史数据）
-    slim = [{
-        "product_key": v.get("sku_id", v["drug_name"]),
-        "drug_name": v["drug_name"],
-        "display_name": v.get("display_name", v["drug_name"]),
-        "category": v["category"],
-        "sub_category": v["sub_category"],
-        "model_used": v.get("model_used", "-"),
-        "mape": v["mape"],
-        "total_forecast_30days": v["total_forecast_30days"],
-        "avg_daily": v["avg_daily"],
-        "recommended_stock": v["recommended_stock"],
-        "is_drift": v["is_drift"],
-        "drift_ratio": v["drift_ratio"],
-    } for v in page_items]
+    slim = []
+    for v in page_items:
+        row = {
+            "product_key": v.get("sku_id", v["drug_name"]),
+            "drug_name": v["drug_name"],
+            "display_name": v.get("display_name", v["drug_name"]),
+            "category": v["category"],
+            "sub_category": v["sub_category"],
+            "model_used": v.get("model_used", "-"),
+            "mape": v["mape"],
+            "total_forecast_30days": v["total_forecast_30days"],
+            "avg_daily": v["avg_daily"],
+            "recommended_stock": v["recommended_stock"],
+            "is_drift": v["is_drift"],
+            "drift_ratio": v["drift_ratio"],
+        }
+        row.update(_forecast_decision(v))
+        slim.append(row)
 
     return jsonify({
         "success": True,
@@ -3255,7 +3402,9 @@ def api_forecast_product(product_key):
     if not item or item.get("mape", 999) >= 999:
         return jsonify({"success": False, "error": "商品不存在或预测失败"}), 404
 
-    return jsonify({"success": True, "product": item})
+    product = dict(item)
+    product.update(_forecast_decision(item))
+    return jsonify({"success": True, "product": product})
 
 
 @app.route("/api/forecast/restock", methods=["GET"])

@@ -99,6 +99,40 @@
         .model-tag.MovingAverage { background: #e0f7fa; color: #00838f; }
         .model-tag.LinearRegression { background: #fff3e0; color: #e65100; }
         .model-tag.Ensemble { background: #e8f5e9; color: #2e7d32; font-weight: 600; }
+        .model-tag.DateLinearRegression { background: #fff3e0; color: #e65100; }
+        .model-tag.DateRidge { background: #efebe9; color: #5d4037; }
+
+        /* 决策解释层 */
+        .decision-panel { background: white; border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .decision-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 14px; }
+        .decision-title h3 { font-size: 16px; color: #222; margin-bottom: 6px; }
+        .decision-title p { font-size: 13px; color: #666; line-height: 1.6; }
+        .decision-formulas { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 8px; min-width: 480px; }
+        .formula-item { background: #f7faf9; border: 1px solid #e3ece8; border-radius: 8px; padding: 10px 12px; }
+        .formula-item .label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+        .formula-item .value { font-size: 13px; color: #222; font-weight: 600; line-height: 1.5; }
+        .decision-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+        .decision-action { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; min-height: 92px; }
+        .decision-action .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .decision-action .count { font-size: 22px; font-weight: 700; color: #222; }
+        .decision-action .desc { font-size: 12px; color: #6b7280; line-height: 1.45; }
+        .decision-action.urgent { border-color: #ffcdd2; background: #fff7f7; }
+        .decision-action.normal { border-color: #c8e6c9; background: #f6fbf6; }
+        .decision-action.caution { border-color: #ffe0b2; background: #fffaf0; }
+        .decision-action.review { border-color: #d1d5db; background: #f9fafb; }
+        .decision-note { margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef2f0; color: #555; font-size: 13px; line-height: 1.6; }
+
+        .product-name { font-weight: 600; color: #222; }
+        .product-meta { margin-top: 5px; display: flex; align-items: center; gap: 6px; }
+        .action-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 68px; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+        .action-badge.urgent { background: #ffebee; color: #b71c1c; }
+        .action-badge.normal { background: #e8f5e9; color: #2e7d32; }
+        .action-badge.caution { background: #fff3e0; color: #e65100; }
+        .action-badge.review { background: #f3f4f6; color: #374151; }
+        .confidence-text { margin-top: 5px; color: #888; font-size: 12px; white-space: nowrap; }
+        .reason-cell { min-width: 260px; max-width: 360px; color: #555; line-height: 1.55; }
+        .risk-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+        .risk-tag { background: #f3f4f6; color: #6b7280; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
 
         /* 模型分布条 */
         .model-dist-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
@@ -154,6 +188,23 @@
         .restock-loading { text-align: center; color: #999; padding: 40px; }
 
         .loading { text-align: center; color: #999; padding: 40px; font-size: 14px; }
+
+        @media (max-width: 980px) {
+            .header { flex-direction: column; align-items: flex-start; gap: 12px; }
+            .header > div:last-child { flex-wrap: wrap; }
+            .kpi-row { grid-template-columns: repeat(2, 1fr); }
+            .decision-head { flex-direction: column; }
+            .decision-formulas { grid-template-columns: 1fr; min-width: 0; width: 100%; }
+            .decision-actions { grid-template-columns: repeat(2, 1fr); }
+            .main-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 560px) {
+            .container { padding: 12px; }
+            .kpi-row, .decision-actions { grid-template-columns: 1fr; }
+            .tf-compare { flex-direction: column; align-items: stretch; }
+            .tf-vs { text-align: center; }
+        }
     </style>
 </head>
 <body>
@@ -196,6 +247,30 @@
             <div class="kpi-card"><div class="label">建议总库存</div><div class="value" id="kpiStock">-</div><div class="unit">盒</div></div>
             <div class="kpi-card warning"><div class="label">漂移商品</div><div class="value" id="kpiDrift">-</div><div class="unit">个需重训</div></div>
             <div class="kpi-card"><div class="label">平均MAPE</div><div class="value" id="kpiMape">-</div><div class="unit">预测误差</div></div>
+        </div>
+
+        <!-- 决策解释 -->
+        <div class="decision-panel" id="decisionPanel">
+            <div class="decision-head">
+                <div class="decision-title">
+                    <h3>预测怎么用</h3>
+                    <p id="decisionModelNote">预测数来自时间序列/回归模型，AI只负责把数字翻译成经营建议。</p>
+                </div>
+                <div class="decision-formulas">
+                    <div class="formula-item">
+                        <div class="label">目标库存</div>
+                        <div class="value" id="decisionFormula">建议库存 = 未来30天预测销量 + 约7天安全库存</div>
+                    </div>
+                    <div class="formula-item">
+                        <div class="label">落地补货</div>
+                        <div class="value">真实补货量 = 目标库存 - 当前库存 - 在途库存</div>
+                    </div>
+                </div>
+            </div>
+            <div class="decision-actions" id="decisionActions">
+                <div class="loading">加载中...</div>
+            </div>
+            <div class="decision-note" id="decisionOperationNote">当前聚合Demo未接实时库存，所以这里展示目标库存。</div>
         </div>
 
         <!-- 模型分布 -->
@@ -243,16 +318,17 @@
                             <tr>
                                 <th>商品名</th>
                                 <th>品类</th>
-                                <th>预测模型</th>
+                                <th>建议动作</th>
                                 <th>预测30天</th>
                                 <th>日均</th>
                                 <th>建议库存</th>
                                 <th>MAPE</th>
                                 <th>漂移</th>
+                                <th>原因</th>
                             </tr>
                         </thead>
                         <tbody id="productTable">
-                            <tr><td colspan="8" class="loading">加载中...</td></tr>
+                            <tr><td colspan="9" class="loading">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -288,6 +364,16 @@
         let chartInstance = null;
 
         let currentDataset = '9000';
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+
+        function safeClass(value) {
+            return String(value ?? '').replace(/[^a-zA-Z0-9_-]/g, '');
+        }
 
         // ===== 数据集切换 =====
         function switchDataset(ds) {
@@ -325,6 +411,31 @@
             } catch (e) { console.error(e); }
         }
 
+        function renderDecisionSummary(summary) {
+            const actionsEl = document.getElementById('decisionActions');
+            if (!summary) {
+                actionsEl.innerHTML = '<div class="loading">暂无决策数据</div>';
+                return;
+            }
+            document.getElementById('decisionModelNote').textContent = summary.model_note || '预测数来自时间序列/回归模型，AI只负责把数字翻译成经营建议。';
+            document.getElementById('decisionFormula').textContent = summary.formula || '建议库存 = 未来30天预测销量 + 约7天安全库存';
+            document.getElementById('decisionOperationNote').textContent = summary.operation_note || '当前聚合Demo未接实时库存，所以这里展示目标库存。';
+
+            const actions = summary.actions || [];
+            actionsEl.innerHTML = actions.map(a => {
+                const cls = safeClass(a.class || 'normal');
+                const count = Number(a.count || 0).toLocaleString();
+                const pct = Number(a.pct || 0).toFixed(1);
+                return `<div class="decision-action ${cls}">
+                    <div class="top">
+                        <span class="action-badge ${cls}">${escapeHtml(a.label)}</span>
+                        <span class="count">${count}</span>
+                    </div>
+                    <div class="desc">${escapeHtml(a.description)} 占比 ${pct}%</div>
+                </div>`;
+            }).join('');
+        }
+
         // ===== 加载总览 =====
         async function loadOverview() {
             try {
@@ -337,6 +448,7 @@
                     document.getElementById('kpiStock').textContent = o.total_recommended_stock.toLocaleString();
                     document.getElementById('kpiDrift').textContent = o.drift_count;
                     document.getElementById('kpiMape').textContent = o.avg_mape + '%';
+                    renderDecisionSummary(o.decision_summary);
 
                     // 品类筛选
                     const catFilters = document.getElementById('categoryFilters');
@@ -405,32 +517,44 @@
         function renderTable(products) {
             const tbody = document.getElementById('productTable');
             if (!products.length) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px">无匹配商品</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;padding:20px">无匹配商品</td></tr>';
                 return;
             }
-            const modelColors = {
-                'ExponentialSmoothing': '#1565c0', 'SeasonalNaive': '#7b1fa2',
-                'MovingAverage': '#00838f', 'LinearRegression': '#e65100', 'Ensemble': '#2e7d32',
-                'DateLinearRegression': '#e65100', 'DateRidge': '#8d6e63',
-            };
             tbody.innerHTML = products.map(p => {
                 const mapeClass = p.mape < 15 ? 'exc' : p.mape < 25 ? 'good' : p.mape < 35 ? 'fair' : 'poor';
                 const modelName = p.model_used || '-';
                 let driftBadge = '<span class="drift-badge none">-</span>';
                 if (p.is_drift) {
-                    driftBadge = p.drift_ratio > 0
-                        ? `<span class="drift-badge up">↑${p.drift_ratio}%</span>`
-                        : `<span class="drift-badge down">↓${Math.abs(p.drift_ratio)}%</span>`;
+                    const driftRatio = Number(p.drift_ratio || 0);
+                    driftBadge = driftRatio > 0
+                        ? `<span class="drift-badge up">↑${driftRatio.toFixed(1)}%</span>`
+                        : `<span class="drift-badge down">↓${Math.abs(driftRatio).toFixed(1)}%</span>`;
                 }
-                return `<tr data-key="${p.product_key}">
-                    <td>${p.display_name || p.drug_name}</td>
-                    <td style="color:#666">${p.category}</td>
-                    <td><span class="model-tag ${modelName}">${modelName}</span></td>
-                    <td><b>${p.total_forecast_30days.toLocaleString()}</b></td>
-                    <td>${p.avg_daily}</td>
-                    <td style="color:#1a8a6e;font-weight:600">${p.recommended_stock.toLocaleString()}</td>
+                const actionClass = safeClass(p.action_class || 'normal');
+                const actionLabel = p.action_label || '正常备货';
+                const confidenceLabel = p.confidence_label || '-';
+                const riskTags = (p.risk_flags || []).slice(0, 3)
+                    .map(flag => `<span class="risk-tag">${escapeHtml(flag)}</span>`)
+                    .join('');
+                return `<tr data-key="${escapeHtml(p.product_key)}">
+                    <td>
+                        <div class="product-name">${escapeHtml(p.display_name || p.drug_name)}</div>
+                        <div class="product-meta"><span class="model-tag ${safeClass(modelName)}">${escapeHtml(modelName)}</span></div>
+                    </td>
+                    <td style="color:#666">${escapeHtml(p.category)}</td>
+                    <td>
+                        <span class="action-badge ${actionClass}">${escapeHtml(actionLabel)}</span>
+                        <div class="confidence-text">置信度 ${escapeHtml(confidenceLabel)}</div>
+                    </td>
+                    <td><b>${Number(p.total_forecast_30days || 0).toLocaleString()}</b></td>
+                    <td>${Number(p.avg_daily || 0).toFixed(1)}</td>
+                    <td style="color:#1a8a6e;font-weight:600">${Number(p.recommended_stock || 0).toLocaleString()}</td>
                     <td><span class="mape-tag ${mapeClass}">${p.mape}%</span></td>
                     <td>${driftBadge}</td>
+                    <td class="reason-cell">
+                        ${escapeHtml(p.decision_reason || '')}
+                        ${riskTags ? `<div class="risk-tags">${riskTags}</div>` : ''}
+                    </td>
                 </tr>`;
             }).join('');
 
