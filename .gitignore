@@ -27,6 +27,8 @@ data/*
 !data/README.md
 !data/drug_aliases.csv
 !data/rag_dialog_eval_cases.json
+!data/science_kb/
+!data/science_kb/*.jsonl
 lora_output/
 lora_output_7b/
 *.npy

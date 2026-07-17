@@ -306,7 +306,7 @@ def desensitize(text):
 EMERGENCY_KEYWORDS = [
     "胸痛", "胸闷", "呼吸困难", "气喘", "窒息",
     "意识模糊", "昏迷", "晕厥", "抽搐", "癫痫",
-    "大量出血", "吐血", "便血", "咯血",
+    "大量出血", "吐血", "便血", "血便", "黑便", "咯血",
     "剧烈头痛", "爆炸性头痛", "雷击样头痛",
     "一侧肢体无力", "口角歪斜", "说话不清",
     "过敏休克", "喉头水肿", "面部肿胀",
@@ -318,7 +318,7 @@ EMERGENCY_KEYWORDS = [
 SEVERE_KEYWORDS = [
     "持续高烧", "39度", "39.5", "反复发烧",
     "剧烈疼痛", "难以忍受", "止痛药无效",
-    "持续呕吐", "脱水", "无法进食",
+    "持续呕吐", "脱水", "尿少", "明显口干", "无法进食",
     "黄疸", "眼白发黄", "血尿", "尿血",
     "孕期出血", "见红", "胎动减少",
     "儿童精神萎靡", "拒食", "前囟凹陷",
@@ -330,8 +330,21 @@ SEVERE_KEYWORDS = [
 def rule_based_triage(text):
     for kw in EMERGENCY_KEYWORDS:
         if kw in text:
-            return {"level": "急症", "action": "immediate_medical",
-                    "recommend_drugs": False, "matched": kw}
+            result = {"level": "急症", "action": "immediate_medical",
+                      "recommend_drugs": False, "matched": kw}
+            if kw in ("便血", "血便", "黑便"):
+                result.update({
+                    "message": "你提到腹泻同时有便血或黑便，这是需要提高警惕、尽快线下评估的危险信号。",
+                    "urgency_reason": "便血或黑便可能提示肠道出血、侵袭性感染或其他需要医生判断的问题，不建议只在家止泻观察。",
+                    "red_flags": [
+                        "血便或黑便",
+                        "高热或寒战",
+                        "剧烈腹痛或持续加重腹痛",
+                        "反复呕吐、喝不进水",
+                        "明显口干、尿少、头晕等脱水表现",
+                    ],
+                })
+            return result
     for kw in SEVERE_KEYWORDS:
         if kw in text:
             return {"level": "重症", "action": "see_doctor_soon",
@@ -1069,6 +1082,10 @@ SYMPTOM_TOPIC_PATTERNS = [
     (["看电脑", "电脑看久", "长时间盯着电脑"], ["眼睛干涩", "干眼症"]),
     (["喉咙痛", "嗓子痛", "咽喉痛"], ["喉咙痛"]),
     (["鼻塞", "流鼻涕", "感冒"], ["感冒"]),
+    (["拉肚子", "腹泻", "肚子拉", "水样便", "稀便"], ["腹泻"]),
+    (["发烧", "发热", "低烧", "高烧", "体温"], ["发热"]),
+    (["肚子痛", "腹痛", "胃痛", "肚子疼", "胃疼"], ["腹痛"]),
+    (["胃口不好", "食欲不振", "腹胀", "肚子胀", "胃胀", "反酸", "嗳气"], ["消化不适"]),
 ]
 
 DRUG_ALIAS_PATH = os.path.join(DATA_DIR, "drug_aliases.csv")
@@ -1092,7 +1109,8 @@ TONE_PROMPT = """【沟通语气】
 2. 语气温和、明确、有边界。可以说"我理解你主要担心..."，但不要过度寒暄。
 3. 如果知识库证据不足，要坦诚说明"我不能硬编"，并告诉用户下一步可以补充什么信息。
 4. 多轮追问时要自然衔接上一轮，直接回答当前追问，不要说"您好"、"我是药学咨询助手"、"作为药学助手"等开场白。
-5. 回答控制在用户能读完的长度，优先给可执行提醒。"""
+5. 症状类问题信息不足时，先像问诊一样确认关键情况：持续时间、严重程度、伴随症状、特殊人群、正在用药，再给有限科普。
+6. 回答控制在用户能读完的长度，优先给可执行提醒。"""
 
 
 def _clean_history(history, limit=5):
@@ -1556,6 +1574,482 @@ def should_use_limited_science_mode(question, max_sim=0.0, evidence_ok=True):
     return False
 
 
+CLINICAL_INTAKE_TOPICS = {
+    "腹泻": {
+        "markers": ["拉肚子", "腹泻", "肚子拉", "水样便", "稀便"],
+        "intro": "我先不急着直接判断原因。腹泻要先看严重程度和有没有脱水、感染风险，这样更安全。",
+        "trigger_line": "你提到吃过冰西瓜，它有可能和腹泻相关，但不能只凭这一点判断，还要看发作时间和伴随症状。",
+        "questions": [
+            ("frequency", ["几次", "多少次", "次", "趟", "水样", "稀便", "成形"], "今天大概拉了几次？大便是水样、稀便，还是有黏液、血丝或黑便？"),
+            ("duration", ["今天", "一天", "半天", "小时", "昨天", "持续", "开始"], "从什么时候开始的？吃冰西瓜后大概多久出现腹泻？"),
+            ("symptoms", ["发烧", "发热", "腹痛", "肚子痛", "肚子疼", "呕吐", "恶心"], "有没有发热、明显腹痛、恶心呕吐？腹痛是阵发性还是持续加重？"),
+            ("dehydration", ["口干", "尿少", "头晕", "乏力", "脱水", "喝不下"], "有没有口干、尿少、头晕、明显乏力这些脱水表现？"),
+            ("risk", ["成人", "儿童", "小孩", "老人", "孕妇", "慢性病", "基础病"], "你是成人吗？有没有孕期、老人儿童、慢性病或正在用药的情况？"),
+        ],
+        "interim": "少量多次补水；如果家里有口服补液盐，可按说明书冲服。饮食先清淡，暂时避免冰冷、油腻、辛辣、酒精和奶制品。",
+        "red_flags": "如果出现血便或黑便、高热、剧烈或持续加重的腹痛、反复呕吐喝不进水、明显尿少头晕，建议尽快就医。",
+    },
+    "发热": {
+        "markers": ["发烧", "发热", "低烧", "高烧", "体温"],
+        "intro": "发热先要看体温范围、持续时间和伴随症状，再判断是居家观察还是需要就医。",
+        "questions": [
+            ("temperature", ["度", "℃", "体温", "38", "39", "40"], "现在最高体温多少？是腋温、耳温还是额温？"),
+            ("duration", ["今天", "昨天", "小时", "天", "持续", "反复"], "发热持续多久了？是一直烧，还是退了又升？"),
+            ("symptoms", ["咳嗽", "喉咙痛", "流鼻涕", "腹泻", "头痛", "皮疹", "胸闷", "呼吸困难"], "有没有咳嗽、咽痛、流鼻涕、腹泻、皮疹、胸闷或呼吸困难？"),
+            ("risk", ["儿童", "小孩", "老人", "孕妇", "慢性病", "基础病"], "是成人还是儿童/老人/孕妇？有没有慢性病或正在用药？"),
+        ],
+        "interim": "休息、补水、观察体温变化，避免自行叠加多种退烧药。",
+        "red_flags": "如果体温接近或超过39℃、精神很差、呼吸困难、胸痛、意识异常、持续不退或反复加重，建议及时就医。",
+    },
+    "感冒": {
+        "markers": ["感冒", "鼻塞", "流鼻涕", "咳嗽", "喉咙痛", "咽痛"],
+        "intro": "感冒样症状也要先分清主要表现和严重程度，尤其要排除高热、气促、基础病等风险。",
+        "questions": [
+            ("duration", ["今天", "昨天", "天", "小时", "持续"], "症状持续多久了？是刚开始，还是已经几天没有好转？"),
+            ("temperature", ["发烧", "发热", "体温", "度", "℃"], "有没有发烧？最高体温多少？"),
+            ("symptoms", ["咳嗽", "咳痰", "黄痰", "鼻塞", "流鼻涕", "喉咙痛", "胸闷", "气促"], "主要是鼻塞流涕、喉咙痛、咳嗽，还是有黄痰、胸闷气促？"),
+            ("risk", ["儿童", "小孩", "老人", "孕妇", "慢性病", "基础病", "过敏"], "你是成人吗？有没有孕期、老人儿童、慢性病、药物过敏或正在用药？"),
+        ],
+        "interim": "休息、补水，观察体温和呼吸情况。不要自行使用抗生素。",
+        "red_flags": "如果出现持续高热、呼吸困难、胸痛、明显乏力加重、基础病人群症状明显，建议及时就医。",
+    },
+    "腹痛": {
+        "markers": ["肚子痛", "腹痛", "胃痛", "肚子疼", "胃疼"],
+        "intro": "腹痛不能只看一个症状，需要先确认部位、疼痛程度和伴随表现。",
+        "questions": [
+            ("location", ["上腹", "下腹", "左", "右", "肚脐", "胃"], "疼痛主要在哪个位置？上腹、下腹、右下腹，还是肚脐周围？"),
+            ("severity", ["轻微", "剧烈", "阵发", "持续", "越来越痛"], "疼痛程度如何？是阵发性还是持续加重？"),
+            ("symptoms", ["发烧", "呕吐", "腹泻", "便血", "黑便", "尿痛"], "有没有发热、呕吐、腹泻、便血黑便或尿痛？"),
+            ("risk", ["儿童", "小孩", "老人", "孕妇", "慢性病", "基础病"], "你是成人吗？有没有孕期、老人儿童、慢性病或正在用药？"),
+        ],
+        "interim": "暂时避免油腻辛辣和饮酒，不要盲目吃止痛药掩盖病情。",
+        "red_flags": "如果腹痛剧烈或持续加重、右下腹明显疼痛、伴高热/呕吐/便血黑便，建议尽快就医。",
+    },
+    "消化不适": {
+        "markers": ["胃口不好", "食欲不振", "腹胀", "肚子胀", "胃胀", "反酸", "嗳气"],
+        "intro": "胃口不好、腹胀这类消化不适，要先看持续时间、伴随症状和有没有危险信号，再决定只是生活调整还是需要就医。",
+        "questions": [
+            ("duration", ["今天", "最近", "几天", "一周", "持续", "开始"], "这种情况持续多久了？是这两天刚出现，还是已经一周以上？"),
+            ("location", ["上腹", "胃", "肚脐", "下腹", "右下腹"], "不舒服主要在胃部上腹，还是肚脐周围、下腹或右下腹？"),
+            ("symptoms", ["腹痛", "胃痛", "反酸", "嗳气", "恶心", "呕吐", "腹泻", "发热"], "有没有腹痛、反酸嗳气、恶心呕吐、腹泻或发热？"),
+            ("red_flag", ["体重", "消瘦", "黑便", "血便", "呕血", "吞咽困难"], "有没有体重下降、黑便血便、呕血或吞咽困难？"),
+            ("risk", ["成人", "儿童", "小孩", "老人", "孕妇", "慢性病", "基础病", "用药"], "你是成人吗？有没有孕期、老人儿童、慢性病或正在用药的情况？"),
+        ],
+        "interim": "先少量多餐，饮食清淡，暂时少吃油腻、辛辣、酒精和过甜食物；不要自行叠加止痛药、抗生素或多种胃药。",
+        "red_flags": "如果出现持续或加重的腹痛、反复呕吐、发热、黑便血便、呕血、体重明显下降或吞咽困难，建议及时就医。",
+    },
+}
+
+
+CLINICAL_STAGE_GROUPS = {
+    "腹泻": [
+        ["腹泻", "拉肚子", "肚子拉", "水样便", "稀便"],
+        ["发热", "发烧", "高热", "低热"],
+        ["腹痛", "肚子痛", "肚子疼", "胃痛", "胃疼"],
+        ["呕吐", "恶心"],
+        ["口干", "尿少", "头晕", "乏力", "脱水"],
+        ["血便", "黑便", "黏液", "脓血"],
+        ["冰", "西瓜", "生冷", "外卖", "海鲜"],
+        ["孕妇", "儿童", "小孩", "老人", "慢性病", "基础病"],
+    ],
+    "发热": [
+        ["发热", "发烧", "低烧", "高烧", "体温"],
+        ["咳嗽", "咳痰", "流鼻涕", "鼻塞", "喉咙痛", "咽痛"],
+        ["腹泻", "拉肚子", "腹痛", "肚子痛", "肚子疼"],
+        ["胸闷", "呼吸困难", "气促"],
+        ["皮疹"],
+        ["儿童", "小孩", "老人", "孕妇", "慢性病", "基础病"],
+    ],
+    "感冒": [
+        ["感冒", "鼻塞", "流鼻涕", "咳嗽", "喉咙痛", "咽痛"],
+        ["发热", "发烧", "体温"],
+        ["黄痰", "胸闷", "气促"],
+        ["儿童", "小孩", "老人", "孕妇", "慢性病", "基础病", "过敏"],
+    ],
+    "腹痛": [
+        ["腹痛", "肚子痛", "肚子疼", "胃痛", "胃疼"],
+        ["发热", "发烧", "体温"],
+        ["呕吐", "恶心"],
+        ["腹泻", "拉肚子", "便血", "黑便", "尿痛"],
+        ["右下腹", "上腹", "下腹", "肚脐"],
+        ["孕妇", "儿童", "小孩", "老人", "慢性病", "基础病"],
+    ],
+    "消化不适": [
+        ["胃口不好", "食欲不振", "腹胀", "肚子胀", "胃胀", "反酸", "嗳气"],
+        ["腹痛", "肚子痛", "肚子疼", "胃痛", "胃疼"],
+        ["恶心", "呕吐", "腹泻", "发热", "发烧"],
+        ["黑便", "血便", "呕血", "体重下降", "消瘦", "吞咽困难"],
+        ["孕妇", "儿童", "小孩", "老人", "慢性病", "基础病"],
+    ],
+}
+
+
+def _has_named_drug(question):
+    q = str(question or "")
+    if _expand_aliases(q):
+        return True
+    known_drugs = [
+        "左氧氟沙星", "氧氟沙星", "阿莫西林", "头孢", "罗红霉素", "阿奇霉素",
+        "布洛芬", "对乙酰氨基酚", "蒙脱石散", "诺氟沙星", "黄连素",
+    ]
+    if any(drug in q for drug in known_drugs):
+        return True
+    form_words = [w for w in DRUG_FORM_WORDS if len(w) >= 2]
+    form_pattern = "|".join(sorted((re.escape(w) for w in form_words), key=len, reverse=True))
+    return bool(re.search(rf"[\u4e00-\u9fa5A-Za-z0-9]{{2,18}}(?:{form_pattern})", q))
+
+
+def _detect_clinical_intake_topic(question, history=None):
+    q = _clinical_user_context(question, history)
+    if not q:
+        return ""
+
+    scores = {}
+    for topic in CLINICAL_INTAKE_TOPICS:
+        scores[topic] = _topic_stage_score(topic, q)
+
+    if _has_positive_marker(q, ["拉肚子", "腹泻", "肚子拉", "水样便", "稀便", "闹肚子"]) or (re.search(r"拉.{0,8}肚子|肚子.{0,8}拉", q) and not _has_positive_marker(q, ["没有拉肚子", "没拉肚子", "无腹泻"])):
+        scores["腹泻"] = scores.get("腹泻", 0) + 1
+    if _has_positive_marker(q, ["肚子痛", "肚子疼", "腹痛", "胃痛", "胃疼"]):
+        scores["腹痛"] = scores.get("腹痛", 0) + 1
+
+    # 混合症状里优先把胃肠道问题拉到前面，避免“发热+腹痛”把腹泻场景带偏。
+    priority = ["腹泻", "腹痛", "消化不适", "发热", "感冒"]
+    best_topic = ""
+    best_score = 0
+    for idx, topic in enumerate(priority):
+        score = scores.get(topic, 0)
+        if score > best_score:
+            best_score = score
+            best_topic = topic
+        elif score == best_score and score > 0 and best_topic:
+            # 按 priority 顺序保留已有更靠前的主题。
+            continue
+    return best_topic
+
+
+def _clinical_history_question_text(history):
+    return " ".join(item.get("question", "") for item in _clean_history(history)).strip()
+
+
+def _clinical_user_context(question, history=None):
+    parts = [str(question or "").strip()]
+    history_text = _clinical_history_question_text(history)
+    if history_text:
+        parts.append(history_text)
+    return " ".join(part for part in parts if part).strip()
+
+
+CLINICAL_NEGATION_WORDS = ["没有", "没", "无", "未", "不", "否认"]
+CLINICAL_UNKNOWN_WORDS = ["不知道", "不清楚", "没测", "没量", "未知"]
+
+
+def _has_positive_marker(text, markers):
+    raw = str(text or "")
+    for marker in markers:
+        start = 0
+        while True:
+            idx = raw.find(marker, start)
+            if idx < 0:
+                break
+            before = raw[max(0, idx - 4):idx]
+            around = raw[max(0, idx - 6):idx + len(marker) + 6]
+            if not any(word in before for word in CLINICAL_NEGATION_WORDS) and not any(word in around for word in CLINICAL_UNKNOWN_WORDS):
+                return True
+            start = idx + len(marker)
+    return False
+
+
+def _clinical_number(value):
+    if not value:
+        return None
+    if value.isdigit():
+        return int(value)
+    mapping = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    if value == "十":
+        return 10
+    if value.startswith("十") and len(value) == 2:
+        return 10 + mapping.get(value[1], 0)
+    if value.endswith("十") and len(value) == 2:
+        return mapping.get(value[0], 0) * 10
+    if "十" in value and len(value) == 3:
+        return mapping.get(value[0], 0) * 10 + mapping.get(value[2], 0)
+    return mapping.get(value)
+
+
+def _diarrhea_frequency(text):
+    raw = str(text or "")
+    match = re.search(r"(?:拉|腹泻|大便|排便).{0,4}?([0-9一二两三四五六七八九十]{1,3})\s*(?:次|趟)", raw)
+    return _clinical_number(match.group(1)) if match else None
+
+
+def _topic_stage_score(topic, text):
+    groups = CLINICAL_STAGE_GROUPS.get(topic, [])
+    score = 0
+    for group in groups:
+        if _has_positive_marker(text, group):
+            score += 1
+    if topic == "腹泻":
+        if _diarrhea_frequency(text) or re.search(r"拉.{0,8}肚子|肚子.{0,8}拉", str(text or "")):
+            score += 1
+    return score
+
+
+def _topic_stage_level(topic, score, has_history, text):
+    if topic == "腹泻":
+        freq = _diarrhea_frequency(text)
+        if freq and freq >= 6:
+            return "中症"
+        if _has_positive_marker(text, ["血便", "黑便", "明显尿少", "反复呕吐", "高热"]):
+            return "中症"
+        if _has_positive_marker(text, ["发热", "发烧", "腹痛", "肚子痛", "肚子疼", "呕吐", "尿少", "头晕", "口干", "乏力"]):
+            return "中症"
+        return "轻症" if has_history or score >= 2 else "轻症"
+    if topic == "发热":
+        if _has_positive_marker(text, ["呼吸困难", "胸痛", "意识异常", "高热", "39", "40"]):
+            return "中症"
+        if _has_positive_marker(text, ["咳嗽", "咽痛", "流鼻涕", "腹泻", "腹痛"]):
+            return "轻症"
+        return "轻症"
+    if topic == "感冒":
+        if _has_positive_marker(text, ["高热", "呼吸困难", "胸痛", "黄痰"]):
+            return "中症"
+        return "轻症"
+    if topic == "腹痛":
+        if _has_positive_marker(text, ["右下腹", "血便", "黑便", "持续加重", "高热", "呕吐"]):
+            return "中症"
+        return "轻症"
+    if topic == "消化不适":
+        if _has_positive_marker(text, ["黑便", "血便", "呕血", "体重下降", "消瘦", "吞咽困难", "持续加重", "高热", "反复呕吐"]):
+            return "中症"
+        if _has_positive_marker(text, ["腹痛", "胃痛", "呕吐", "腹泻", "发热"]):
+            return "中症"
+        return "轻症"
+    return "轻症"
+
+
+def build_clinical_stage_reply(question, history=None):
+    """二轮或以上的阶段性判断：给出可能方向+风险提示，避免继续空转追问。"""
+    q = str(question or "").strip()
+    topic = _detect_clinical_intake_topic(q, history)
+    if not topic or _has_named_drug(q):
+        return None
+
+    has_history = bool(_clean_history(history))
+    user_context = _clinical_user_context(q, history)
+    score = _topic_stage_score(topic, user_context)
+
+    # 首轮信息太少时先追问；有历史后只要出现关键症状组合，就给阶段性判断。
+    if not has_history and score < 2:
+        return None
+    if has_history and score < 1:
+        return None
+
+    level = _topic_stage_level(topic, score, has_history, user_context)
+    lines = ["我先按你现在补充的信息做阶段性判断。"]
+
+    if topic == "腹泻":
+        freq = _diarrhea_frequency(user_context)
+        has_gastro_risk = _has_positive_marker(user_context, ["发热", "发烧", "腹痛", "肚子痛", "肚子疼"])
+        dehydration_hits = [marker for marker in ["乏力", "口干", "尿少", "头晕", "脱水"] if _has_positive_marker(user_context, [marker])]
+        has_dehydration_risk = bool(dehydration_hits)
+        if any(marker in user_context for marker in ["冰", "西瓜", "生冷", "外卖", "海鲜"]):
+            lines.append("吃冰西瓜后出现腹泻，确实可能和生冷刺激或饮食刺激有关，但也不能排除感染性腹泻。")
+        if freq and freq >= 6:
+            lines.append(f"你补充今天已经拉了{freq}次，次数偏多，要重点防脱水，也要留意是否有发热、血便或腹痛加重。")
+        if has_gastro_risk:
+            lines.append("你还提到发热或腹痛，这比单纯腹泻更需要重视，常见要考虑急性胃肠炎或感染性腹泻。")
+        elif has_dehydration_risk:
+            lines.append(f"你提到{ '、'.join(dehydration_hits) }，要重点观察脱水风险。")
+        elif has_history:
+            lines.append("结合你前一轮描述，这不像单纯的轻微肠胃不适，更需要重点观察脱水和感染风险。")
+        lines.append("现在先少量多次补液，饮食清淡，暂时别碰冰冷、油腻、辛辣和酒精。")
+        if level == "中症":
+            lines.append("如果腹痛加重、血便/黑便、反复呕吐或明显尿少头晕，请尽快就医。")
+        else:
+            lines.append("如果后面腹泻次数变多、体温升高或腹痛加重，也要尽快就医。")
+        lines.append("如果你愿意，再补充今天拉了几次和最高体温，我可以继续帮你判断。")
+    elif topic == "发热":
+        if _has_positive_marker(user_context, ["咳嗽", "咽痛", "流鼻涕", "鼻塞"]):
+            lines.append("你补充的表现更像上呼吸道感染一类问题，但是否需要就医还要看体温、持续时间和呼吸情况。")
+        if _has_positive_marker(user_context, ["腹痛", "腹泻"]):
+            lines.append("如果发热还合并腹痛或腹泻，也要考虑胃肠道感染的可能。")
+        lines.append("先休息、补水，别自行叠加多种退烧药。")
+        if level == "中症":
+            lines.append("如果高热不退、胸痛、呼吸困难、意识异常，建议尽快就医。")
+        else:
+            lines.append("如果体温继续升高或症状超过几天不缓解，建议就医评估。")
+        lines.append("如果方便，再补充最高体温和持续时间，我可以继续帮你分层。")
+    elif topic == "感冒":
+        if _has_positive_marker(user_context, ["发热", "发烧"]):
+            lines.append("你提到还有发热，普通感冒和流感样感染都需要看体温和持续时间。")
+        if _has_positive_marker(user_context, ["黄痰", "胸闷", "气促"]):
+            lines.append("如果还有黄痰、胸闷或气促，就不能只按普通感冒看了。")
+        lines.append("先休息、补水，不要自行使用抗生素。")
+        if level == "中症":
+            lines.append("如果高热不退、胸闷气促、胸痛或基础病明显，建议尽快就医。")
+        else:
+            lines.append("如果症状持续加重或超过几天没好转，建议就医评估。")
+        lines.append("如果愿意，再补充最高体温和症状持续几天，我可以继续帮你判断。")
+    elif topic == "腹痛":
+        if _has_positive_marker(user_context, ["发热", "腹泻", "呕吐", "恶心"]):
+            lines.append("腹痛如果还合并发热、腹泻或呕吐，要优先考虑急性胃肠炎或肠道感染。")
+        if _has_positive_marker(user_context, ["右下腹", "下腹"]):
+            lines.append("如果疼痛主要在右下腹或持续加重，就更需要尽快就医。")
+        lines.append("先暂时避免油腻辛辣和酒精，不要盲目吃止痛药掩盖病情。")
+        if level == "中症":
+            lines.append("如果腹痛剧烈、右下腹明显疼、或伴高热/呕吐/便血黑便，请尽快就医。")
+        else:
+            lines.append("如果疼痛持续不缓解或越来越重，也建议就医。")
+        lines.append("如果你愿意，再补充疼痛位置和有没有腹泻，我可以继续帮你判断。")
+    elif topic == "消化不适":
+        if _has_positive_marker(user_context, ["反酸", "嗳气", "胃胀", "腹胀", "肚子胀"]):
+            lines.append("你提到胃口或腹胀反酸这类表现，常见要先看饮食刺激、胃肠动力和消化道炎症等方向，但不能直接下诊断。")
+        if _has_positive_marker(user_context, ["腹痛", "胃痛", "呕吐", "腹泻", "发热"]):
+            lines.append("如果同时有腹痛、呕吐、腹泻或发热，风险会比单纯胃口不好更高，需要更谨慎观察。")
+        lines.append("现在先少量多餐、清淡饮食，暂时避开油腻辛辣、酒精、浓茶咖啡和过甜食物。")
+        if level == "中症":
+            lines.append("如果症状持续加重，或出现黑便血便、反复呕吐、发热、体重明显下降、吞咽困难，建议及时就医。")
+        else:
+            lines.append("如果只是短期胃口差或轻微腹胀，可以先观察饮食和作息；持续不缓解时建议就医评估。")
+        lines.append("如果方便，再补充持续几天、有没有腹痛反酸和最近有没有用药，我可以继续帮你分层。")
+
+    lines.extend([
+        "",
+        f"当前更偏向：{ '中症' if level == '中症' else '轻症' }。",
+        "",
+        get_disclaimer("symptom"),
+    ])
+    return {
+        "reply": "\n".join(lines),
+        "level": level,
+        "needs_doctor": level == "中症",
+        "score": score,
+        "topic": topic,
+    }
+
+
+def _clinical_question_missing(spec, user_text):
+    missing = []
+    for key, markers, prompt in spec["questions"]:
+        if not any(marker in user_text for marker in markers):
+            missing.append(prompt)
+    return missing
+
+
+def build_clinical_intake_reply(question, history=None):
+    """问诊式科普：首轮信息不足时先问关键问题。"""
+    q = str(question or "").strip()
+    topic = _detect_clinical_intake_topic(q, history)
+    if not topic:
+        return None
+    if _has_named_drug(q):
+        return None
+
+    personal_or_acute = any(marker in q for marker in [
+        "我", "孩子", "小孩", "老人", "孕妇", "今天", "现在", "最近", "一直", "刚",
+        "一天", "半天", "吃了", "吃过", "喝了", "怎么回事", "怎么办", "原因",
+        "是不是", "会是", "会不会", "为什么", "感觉", "不舒服", "不好", "胀", "疼", "痛",
+    ])
+    if not personal_or_acute:
+        return None
+
+    spec = CLINICAL_INTAKE_TOPICS[topic]
+    user_context = _clinical_user_context(q, history)
+    missing = _clinical_question_missing(spec, user_context)
+    if len(missing) <= 1 and history:
+        return None
+
+    questions = missing[:5] or [prompt for _key, _markers, prompt in spec["questions"][:4]]
+    lines = [
+        spec["intro"],
+    ]
+    if topic == "腹泻" and any(marker in q for marker in ["冰", "西瓜", "生冷", "隔夜", "外卖", "海鲜"]):
+        lines.extend(["", spec.get("trigger_line", "")])
+    lines.extend(["", "我需要先确认几个关键问题："])
+    lines.extend([f"{idx}. {item}" for idx, item in enumerate(questions, 1)])
+    lines.extend([
+        "",
+        "你可以直接按这几项回复，我再根据风险程度继续判断下一步建议。",
+        "",
+        f"在你补充前，先按安全原则处理：{spec['interim']}",
+        "",
+        f"需要尽快就医的情况：{spec['red_flags']}",
+        get_disclaimer("symptom"),
+    ])
+    return "\n".join(line for line in lines if line is not None)
+
+
+# ===== 新版问诊/科普/知识路由模块 =====
+# 旧函数暂时保留在上方，便于回退；运行时优先使用拆分后的模块。
+try:
+    import medical_science as _medical_science
+    import knowledge_router as _knowledge_router
+    from symptom_intake import (
+        build_clinical_analysis_reply as _module_build_clinical_analysis_reply,
+        build_clinical_intake_reply as _module_build_clinical_intake_reply,
+        build_clinical_stage_reply as _module_build_clinical_stage_reply,
+        detect_clinical_intake_topic as _module_detect_clinical_intake_topic,
+    )
+
+    build_clinical_analysis_reply = _module_build_clinical_analysis_reply
+    build_clinical_intake_reply = _module_build_clinical_intake_reply
+    build_clinical_stage_reply = _module_build_clinical_stage_reply
+    _detect_clinical_intake_topic = _module_detect_clinical_intake_topic
+    _MEDICAL_MODULES_READY = True
+    print("[medical] 已启用模块化问诊/科普/路由", flush=True)
+except Exception as e:
+    _medical_science = None
+    _knowledge_router = None
+    _MEDICAL_MODULES_READY = False
+    print(f"[medical] 模块化问诊加载失败，继续使用内置逻辑: {e}", flush=True)
+
+
+if not _MEDICAL_MODULES_READY:
+    def build_clinical_analysis_reply(question, history=None):
+        return None
+
+
+if _MEDICAL_MODULES_READY:
+    def _is_science_education_question(question):
+        return _medical_science.is_science_education_question(question)
+
+
+    def build_science_education_reply(question, max_sim=0.0, evidence_reason="", context=None):
+        disclaimer = get_disclaimer("out_of_scope")
+        return _medical_science.build_science_reply(
+            question,
+            max_sim=max_sim,
+            evidence_reason=evidence_reason,
+            context=context,
+            disclaimer=disclaimer,
+        )
+
+
+    def should_use_limited_science_mode(question, max_sim=0.0, evidence_ok=True):
+        return _medical_science.should_use_limited_science_mode(question, max_sim, evidence_ok)
+
+
+def _try_science_pre_route(masked, history, result, level="轻症"):
+    """在药品库检索前处理纯科普问题，避免有限药品库硬套答案。"""
+    if not _MEDICAL_MODULES_READY:
+        return None
+    route = _knowledge_router.route_question(
+        masked,
+        has_named_drug=_has_named_drug(masked),
+        has_history=bool(history),
+    )
+    if route.get("route") != "science":
+        return None
+    context = _dialog_context(history)
+    answer = build_science_education_reply(masked, context=context)
+    result["answer"] = answer
+    result["triage"] = {"level": "科普", "recommend_drugs": False, "needs_doctor": False}
+    result["steps"].append(f"知识路由：科普库（{route.get('topic') or '通用'}）")
+    audit_log(masked, answer, level, ["科普库"], retrieved=result["retrieved"], steps=result["steps"])
+    return result
+
+
 def build_price_gap_prefix(question):
     if any(word in question for word in PRICE_INTENT_WORDS):
         return "关于价格，知识库暂无价格信息；实际价格会因规格、地区和购买渠道变化，我不能编价格。\n\n"
@@ -1876,6 +2370,45 @@ def process_question(question, history=None):
     # 2. 分诊——规则引擎优先，简单问题不调LLM
     triage = rule_based_triage(masked)
     if triage is None:
+        science_result = _try_science_pre_route(masked, history, result, "轻症")
+        if science_result:
+            return science_result
+
+        clinical_analysis = build_clinical_analysis_reply(masked, history)
+        if clinical_analysis:
+            result["answer"] = clinical_analysis["reply"]
+            result["triage"] = {
+                "level": clinical_analysis["level"],
+                "recommend_drugs": False,
+                "needs_doctor": clinical_analysis["needs_doctor"],
+            }
+            result["steps"].append("分诊：状况分析")
+            result["steps"].append(f"问诊式状况分析：{clinical_analysis['topic']}")
+            audit_log(masked, clinical_analysis["reply"], clinical_analysis["level"], ["问诊分析"], retrieved=result["retrieved"], steps=result["steps"])
+            return result
+
+        clinical_stage = build_clinical_stage_reply(masked, history)
+        if clinical_stage:
+            result["answer"] = clinical_stage["reply"]
+            result["triage"] = {
+                "level": clinical_stage["level"],
+                "recommend_drugs": False,
+                "needs_doctor": clinical_stage["needs_doctor"],
+            }
+            result["steps"].append("分诊：阶段判断")
+            result["steps"].append(f"问诊式阶段判断：{clinical_stage['topic']}")
+            audit_log(masked, clinical_stage["reply"], clinical_stage["level"], ["问诊分层"], retrieved=result["retrieved"], steps=result["steps"])
+            return result
+
+        clinical_reply = build_clinical_intake_reply(masked, history)
+        if clinical_reply:
+            result["answer"] = clinical_reply
+            result["triage"] = {"level": "澄清", "recommend_drugs": False, "needs_doctor": False}
+            result["steps"].append("分诊：澄清")
+            result["steps"].append("问诊式澄清：症状信息不足")
+            audit_log(masked, clinical_reply, "澄清", ["问诊待补充"], retrieved=result["retrieved"], steps=result["steps"])
+            return result
+
         # 判断是否是简单药品查询（不含症状描述词）
         symptom_words = ["头痛","发烧","咳嗽","感冒","疼痛","拉肚子","腹泻","失眠",
                          "恶心","呕吐","过敏","皮疹","痒","头晕","胸闷","心慌",
@@ -1900,7 +2433,17 @@ def process_question(question, history=None):
     # 急症/重症：直接引导就医
     if level in ("急症", "重症") or triage.get("action") in ("immediate_medical", "see_doctor_soon"):
         if level == "急症":
-            answer = f"您好，根据您描述的情况，建议您尽快前往医院就诊，由专业医生为您评估。\n\n请不要自行用药，前往最近医院就诊即可。"
+            message = triage.get("message") or "根据你描述的情况，建议尽快前往医院就诊，由专业医生评估。"
+            reason = triage.get("urgency_reason", "")
+            answer = message
+            if reason:
+                answer += f"\n\n原因：{reason}"
+            red_flags = triage.get("red_flags", [])
+            if red_flags:
+                answer += "\n\n需要重点说明的危险信号：\n"
+                for rf in red_flags:
+                    answer += f"• {rf}\n"
+            answer += "\n请不要自行用药，建议尽快就医，前往最近医院就诊。"
             answer += get_disclaimer("see_doctor")
         else:
             advice = triage.get("advice", "您的症状建议尽快就医，不建议自行用药。")
@@ -1973,6 +2516,10 @@ def process_question(question, history=None):
         result["triage"] = {"level": "闲聊", "recommend_drugs": False, "needs_doctor": False}
         audit_log(masked, reply, "闲聊", [], retrieved=result["retrieved"], steps=result["steps"])
         return result
+
+    science_result = _try_science_pre_route(masked, history, result, level)
+    if science_result:
+        return science_result
 
     # 3. Query Rewrite：多轮追问改写成完整问题（解决"那用什么药"指代不明）
     retrieve_question = masked
@@ -2470,6 +3017,50 @@ def api_ask_stream():
             # 分诊
             triage = rule_based_triage(masked)
             if triage is None:
+                science_result = _try_science_pre_route(masked, history, result, "轻症")
+                if science_result:
+                    for event in stream_answer_events(result, science_result["answer"]):
+                        yield event
+                    return
+
+                clinical_analysis = build_clinical_analysis_reply(masked, history)
+                if clinical_analysis:
+                    result["triage"] = {
+                        "level": clinical_analysis["level"],
+                        "recommend_drugs": False,
+                        "needs_doctor": clinical_analysis["needs_doctor"],
+                    }
+                    result["steps"].append("分诊：状况分析")
+                    result["steps"].append(f"问诊式状况分析：{clinical_analysis['topic']}")
+                    for event in stream_answer_events(result, clinical_analysis["reply"]):
+                        yield event
+                    audit_log(masked, clinical_analysis["reply"], clinical_analysis["level"], ["问诊分析"], retrieved=result["retrieved"], steps=result["steps"])
+                    return
+
+                clinical_stage = build_clinical_stage_reply(masked, history)
+                if clinical_stage:
+                    result["triage"] = {
+                        "level": clinical_stage["level"],
+                        "recommend_drugs": False,
+                        "needs_doctor": clinical_stage["needs_doctor"],
+                    }
+                    result["steps"].append("分诊：阶段判断")
+                    result["steps"].append(f"问诊式阶段判断：{clinical_stage['topic']}")
+                    for event in stream_answer_events(result, clinical_stage["reply"]):
+                        yield event
+                    audit_log(masked, clinical_stage["reply"], clinical_stage["level"], ["问诊分层"], retrieved=result["retrieved"], steps=result["steps"])
+                    return
+
+                clinical_reply = build_clinical_intake_reply(masked, history)
+                if clinical_reply:
+                    result["triage"] = {"level": "澄清", "recommend_drugs": False, "needs_doctor": False}
+                    result["steps"].append("分诊：澄清")
+                    result["steps"].append("问诊式澄清：症状信息不足")
+                    for event in stream_answer_events(result, clinical_reply):
+                        yield event
+                    audit_log(masked, clinical_reply, "澄清", ["问诊待补充"], retrieved=result["retrieved"], steps=result["steps"])
+                    return
+
                 symptom_words = ["头痛","发烧","咳嗽","感冒","疼痛","拉肚子","腹泻","失眠",
                                  "恶心","呕吐","过敏","皮疹","痒","头晕","胸闷","心慌",
                                  "鼻塞","流鼻","痛","烧","咳","吐","麻","晕","便秘","流泪"]
@@ -2534,6 +3125,12 @@ def api_ask_stream():
                 for event in stream_answer_events(result, reply):
                     yield event
                 audit_log(masked, reply, "闲聊", [], retrieved=result["retrieved"], steps=result["steps"])
+                return
+
+            science_result = _try_science_pre_route(masked, history, result, level)
+            if science_result:
+                for event in stream_answer_events(result, science_result["answer"]):
+                    yield event
                 return
 
             # Query Rewrite

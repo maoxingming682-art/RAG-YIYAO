@@ -165,8 +165,14 @@ def apply_safety(question, answer, retrieved_chunks=None, triage_result=None):
 
     if guidance_type == "emergency":
         # 急症：直接返回紧急提醒，不展示原始答案
-        emergency_msg = triage_result.get("message", "您描述的症状建议尽快由医生面诊评估。")
-        return f"您好，根据您描述的情况，建议您尽快前往医院就诊，由专业医生为您评估。\n\n请不要自行用药，前往最近医院就诊即可。\n{DISCLAIMER_TEMPLATES['emergency']}"
+        emergency_msg = triage_result.get("message", "根据你描述的情况，建议尽快前往医院就诊，由专业医生评估。")
+        reason = triage_result.get("urgency_reason", "")
+        red_flags = triage_result.get("red_flags", [])
+        red_flags_text = ""
+        if red_flags:
+            red_flags_text = "\n\n需要重点说明的危险信号：\n" + "".join([f"- {rf}\n" for rf in red_flags])
+        reason_text = f"\n\n原因：{reason}" if reason else ""
+        return f"{emergency_msg}{reason_text}{red_flags_text}\n请不要自行用药，建议尽快就医，前往最近医院就诊。\n{DISCLAIMER_TEMPLATES['emergency']}"
 
     if guidance_type == "see_doctor":
         # 重症：不推药，引导就医
